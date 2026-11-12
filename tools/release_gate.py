@@ -9,13 +9,14 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 
 SOURCE_DIRS = ("src", "lib", "web", "tools", "integration")
 EXTENSIONS = {".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".hxx", ".ino", ".py", ".php",
               ".js", ".mjs", ".cjs", ".jsx", ".html"}
 NON_CODE = {".md", ".txt", ".example", ".yml", ".yaml"}
-SKIP_DIRS = {".git", ".pio", ".venv", "build", "dist", "backups", "__pycache__"}
+SKIP_DIRS = {"__pycache__"}
 DIRECTORIES = (*SOURCE_DIRS, "tests", "firmware", "docs", "reference")
 ROOT_FILES = ("README_RU.md", "LICENSE", "THIRD_PARTY.md", "requirements.txt",
               "platformio.ini", "partitions.csv", ".gitignore")
@@ -27,12 +28,19 @@ CHECKS = ("semgrep", "trivy", "coverage", "crapper", "dryer", "mutator", "freshn
 
 def inventory(root):
     files = list(ROOT_FILES)
+    for name in ROOT_FILES:
+        if (root / name).is_symlink():
+            raise ValueError(f"symlink in release inventory: {name}")
     for name in DIRECTORIES:
         directory = root / name
+        if directory.is_symlink():
+            raise ValueError(f"symlink in release inventory: {name}")
         if not directory.is_dir():
             raise ValueError(f"missing release directory: {name}")
         for path in directory.rglob("*"):
             relative = path.relative_to(root)
+            if path.is_symlink():
+                raise ValueError(f"symlink in release inventory: {relative.as_posix()}")
             if not path.is_file() or set(relative.parts) & SKIP_DIRS or path.suffix == ".pyc":
                 continue
             if relative.parts[:2] in (("docs", "tasks"), ("docs", "superpowers")):
@@ -44,6 +52,24 @@ def inventory(root):
         if not (root / name).is_file():
             raise ValueError(f"missing release input: {name}")
     return sorted(set(files))
+
+
+def copy_snapshot(root, snapshot, files):
+    for name in files:
+        parts = Path(name).parts
+        descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            for part in parts[:-1]:
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
+                os.close(descriptor)
+                descriptor = child
+            source = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=descriptor)
+            target = snapshot / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with os.fdopen(source, "rb") as input_file, target.open("wb") as output_file:
+                shutil.copyfileobj(input_file, output_file)
+        finally:
+            os.close(descriptor)
 
 
 def source_files(root):
@@ -62,11 +88,14 @@ def source_files(root):
     return result
 
 
-def fingerprint(root):
+def file_digests(root):
+    return {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in inventory(root)}
+
+
+def fingerprint(root, digests=None):
     digest = hashlib.sha256()
-    for name in inventory(root):
-        data = (root / name).read_bytes()
-        digest.update(name.encode("utf-8") + b"\0" + len(data).to_bytes(8, "big") + data)
+    for name, value in (file_digests(root) if digests is None else digests).items():
+        digest.update(name.encode("utf-8") + b"\0" + bytes.fromhex(value))
     return digest.hexdigest()
 
 
@@ -99,6 +128,7 @@ def command(args, root, timeout=120):
     print("COMMAND", shlex.join(str(arg) for arg in args), flush=True)
     environment = {key: value for key, value in os.environ.items()
                    if not key.upper().startswith(("COVERAGE_", "TRIVY_", "SEMGREP_"))}
+    environment["PATH"] = str(Path(sys.executable).parent) + os.pathsep + environment.get("PATH", "")
     environment["COVERAGE_FILE"] = str(root / ".coverage")
     environment["COVERAGE_RCFILE"] = str(root / ".coverage-empty-config")
     (root / ".coverage-empty-config").touch(exist_ok=True)
@@ -167,20 +197,25 @@ def trivy_result(result, expected):
         if data["SchemaVersion"] != 2 or not isinstance(data["Results"], list) or not data["Results"]:
             raise ValueError("invalid results")
         manifests = []
-        findings = 0
+        findings = {key: 0 for key in ("Vulnerabilities", "Secrets", "Misconfigurations", "Licenses")}
         for entry in data["Results"]:
+            unknown = set(entry) - {"Target", "Class", "Type", "Packages", "Vulnerabilities",
+                                    "Secrets", "Misconfigurations", "Licenses"}
+            if unknown:
+                return "BLOCKED", f"unknown Trivy result field: {', '.join(sorted(unknown))}"
             if entry.get("Class") not in ("lang-pkgs", "os-pkgs", "secret", "config", "license"):
                 raise ValueError("unknown result class")
-            for key in ("Vulnerabilities", "Secrets", "Misconfigurations", "Licenses"):
+            for key in findings:
                 issues = entry.get(key, [])
                 if not isinstance(issues, list):
                     raise ValueError("invalid findings")
-                findings += len(issues)
+                findings[key] += len(issues)
             if (entry.get("Target") == "requirements.txt"
                     and entry.get("Class") == "lang-pkgs" and entry.get("Type") == "pip"):
                 manifests.append(entry)
-        if findings:
-            return "FAIL", f"{findings} vulnerabilities, secrets, misconfigurations or license findings"
+        if any(findings.values()):
+            return "FAIL", (f"{findings['Vulnerabilities']} vulnerabilities, {findings['Secrets']} secrets, "
+                            f"{findings['Misconfigurations']} misconfigurations, {findings['Licenses']} licenses")
         if len(manifests) != 1 or not isinstance(manifests[0].get("Packages"), list):
             return "BLOCKED", "requirements.txt packages missing from Trivy report"
         packages = {}
@@ -191,7 +226,7 @@ def trivy_result(result, expected):
             packages[name] = package["Version"]
         if not expected or packages != expected:
             return "BLOCKED", "Trivy packages do not match pinned requirements.txt"
-        return "PASS", "all pinned Python packages scanned; no findings"
+        return "BLOCKED", "license data for pinned packages was not produced; license scope not evidenced"
     except (KeyError, TypeError, ValueError):
         return "BLOCKED", "invalid or empty Trivy report"
 
@@ -243,7 +278,7 @@ def scan_semgrep(root, files, temporary):
             "--no-git-ignore", "--max-target-bytes=0", "--strict", *targets]
     result = command(args, root, 180)
     status, detail = semgrep_result(result, set(targets))
-    unsupported = [name for name in files if name.endswith((".ino", ".php"))]
+    unsupported = [name for name in files if name.endswith(".ino")]
     if status == "PASS" and unsupported:
         return "BLOCKED", f"Semgrep baseline does not cover: {', '.join(unsupported)}"
     return status, detail
@@ -252,7 +287,7 @@ def scan_semgrep(root, files, temporary):
 def scan_trivy(root, temporary):
     executable = shutil.which("trivy")
     if not executable or not version(executable, root):
-        return "BLOCKED", "Trivy missing or version unavailable"
+        return "BLOCKED", "Trivy missing or version unavailable; PlatformIO dependencies not covered by Trivy"
     snapshot = Path(temporary) / "trivy"
     snapshot.mkdir()
     for directory in SOURCE_DIRS:
@@ -268,9 +303,7 @@ def scan_trivy(root, temporary):
     status, detail = trivy_result(result, pinned_requirements(snapshot / "requirements.txt"))
     # platformio.ini pins ArduinoJson but Trivy does not identify that manifest.
     # Scanning requirements.txt alone is not dependency coverage for the firmware.
-    if status == "PASS":
-        return "BLOCKED", "Python requirements scanned; PlatformIO dependencies not covered by Trivy"
-    return status, detail
+    return status, f"{detail}; PlatformIO dependencies not covered by Trivy"
 
 
 def check_coverage(root, files, temporary):
@@ -443,18 +476,7 @@ def run_checks(root):
 def run(root):
     try:
         before = fingerprint(root)
-        files = inventory(root)
-        with tempfile.TemporaryDirectory(prefix="esp32-gate-input-") as temporary:
-            snapshot = Path(temporary)
-            for name in files:
-                target = snapshot / name
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(root / name, target)
-            if fingerprint(snapshot) != before:
-                raise ValueError("release inputs changed while taking snapshot")
-            results = run_checks(snapshot)
-            if fingerprint(snapshot) != before:
-                results["freshness"] = ("FAIL", "scanner changed snapshot inputs")
+        results = run_checks(root)
         if fingerprint(root) != before:
             results["freshness"] = ("FAIL", "release inputs changed during checks")
     except (OSError, ValueError) as error:
@@ -466,4 +488,14 @@ def run(root):
 
 
 if __name__ == "__main__":
-    raise SystemExit(0 if run(Path(__file__).resolve().parents[1]) else 1)
+    root = Path(__file__).resolve().parents[1]
+    try:
+        with tempfile.TemporaryDirectory(prefix="esp32-release-snapshot-") as temporary:
+            snapshot = Path(temporary)
+            copy_snapshot(root, snapshot, inventory(root))
+            passed = run(snapshot)
+    except (OSError, ValueError) as error:
+        for name in CHECKS:
+            print(f"{name}: BLOCKED (inventory unavailable: {error})", flush=True)
+        passed = False
+    raise SystemExit(0 if passed else 1)

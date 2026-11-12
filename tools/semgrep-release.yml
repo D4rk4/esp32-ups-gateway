@@ -23,3 +23,16 @@ rules:
     pattern-either:
       - pattern: eval(...)
       - pattern: new Function(...)
+  - id: php-dynamic-execution
+    languages: [php]
+    severity: ERROR
+    message: Dynamic PHP code or shell execution needs review.
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: exec(...)
+      - pattern: shell_exec(...)
+      - pattern: system(...)
+      - pattern: passthru(...)
+      - pattern: popen(...)
+      - pattern: proc_open(...)
+      - pattern: '`...`'
