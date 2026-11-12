@@ -29,12 +29,13 @@ def partition_table(entries=None):
 
 
 class Recorder:
-    def __init__(self, config=None, after=None, table=None, flash_size="16MB"):
+    def __init__(self, config=None, after=None, table=None, flash_size="16MB", erased=None):
         self.commands = []
         self.config = config or b"C" * 0x10000
         self.after = after if after is not None else self.config
         self.table = table or partition_table().ljust(4096, b"\xff")
         self.flash_size = flash_size
+        self.erased = erased if erased is not None else b"\xff" * 0x10000
         self.wrote = False
 
     def __call__(self, command):
@@ -48,6 +49,8 @@ class Recorder:
             Path(path).write_bytes(data[:int(size, 0)])
         if "write_flash" in command:
             self.wrote = True
+        if "erase_flash" in command:
+            self.config = self.erased
         return ""
 
 
@@ -157,6 +160,42 @@ class FlashTests(unittest.TestCase):
         path.write_bytes(b"short")
         with self.assertRaises(flash.FlashError):
             self.invoke("restore-config", Recorder(), "--file", str(path), "--confirm", "RESTORE_CONFIG")
+
+    def test_erase_requires_exact_confirmation_before_device_access(self):
+        for extra in ([], ["--confirm", "WRONG"]):
+            recorder = Recorder()
+            with self.subTest(extra=extra), self.assertRaises(flash.FlashError):
+                self.invoke("erase", recorder, *extra)
+            self.assertEqual(recorder.commands, [])
+
+    def test_erase_reads_blank_appcfg_before_reset_without_backup_or_write(self):
+        recorder = Recorder()
+        self.assertEqual(self.invoke("erase", recorder, "--confirm", "ERASE_FLASH"), 0)
+        erases = [i for i, c in enumerate(recorder.commands) if "erase_flash" in c]
+        self.assertEqual(len(erases), 1)
+        self.assertFalse(any("write_flash" in c for c in recorder.commands))
+        reads = [i for i, c in enumerate(recorder.commands) if "read_flash" in c and "0xf00000" in c]
+        self.assertEqual(len(reads), 1)
+        self.assertGreater(reads[0], erases[0])
+        self.assertLess(reads[0], len(recorder.commands) - 1)
+        self.assertEqual(recorder.commands[reads[0]][-3:-1], ["0xf00000", "0x10000"])
+        self.assertIn("flash_id", recorder.commands[-1])
+        self.assertEqual(recorder.commands[-1][recorder.commands[-1].index("--after") + 1], "hard_reset")
+        for command in recorder.commands[:-1]:
+            self.assertEqual(command[command.index("--after") + 1], "no_reset")
+        self.assertFalse(self.backups.exists())
+
+    def test_erase_nonblank_appcfg_aborts_before_reset(self):
+        recorder = Recorder(erased=b"X" * 0x10000)
+        with self.assertRaisesRegex(flash.FlashError, "appcfg"):
+            self.invoke("erase", recorder, "--confirm", "ERASE_FLASH")
+        self.assertFalse(any("hard_reset" in c for c in recorder.commands))
+
+    def test_erase_dry_run_never_calls_runner(self):
+        def prohibited(command):
+            self.fail(f"Dry-run executed a device command: {command}")
+        self.assertEqual(self.invoke("erase", prohibited, "--confirm", "ERASE_FLASH", dry=True), 0)
+        self.assertFalse(self.backups.exists())
 
     def test_dry_run_never_calls_runner_or_creates_backup_directory(self):
         def prohibited(command):

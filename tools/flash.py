@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Serial flashing for the single-slot ESP32 gateway; preserves dedicated appcfg.
+"""Serial flashing for the single-slot ESP32 gateway; preserves dedicated appcfg unless erase is requested.
 
 Python 3.10+; real serial operations require esptool==4.9.0. Global options go
-before the action. Config backup/restore --file and restore --confirm go after it.
+before the action. Config backup/restore --file and restore/erase --confirm go after it.
 Backups contain passwords and SNMP communities and must be kept private.
 """
 from __future__ import annotations
@@ -215,6 +215,8 @@ def build_parser() -> argparse.ArgumentParser:
     restore = actions.add_parser("restore-config", help="DESTRUCTIVE: replace only appcfg with an exact 65536-byte backup")
     restore.add_argument("--file", type=Path, required=True, help="65536-byte raw appcfg backup containing credentials")
     restore.add_argument("--confirm", default="", help="Required exact confirmation: RESTORE_CONFIG")
+    erase = actions.add_parser("erase", help="DESTRUCTIVE: erase the entire flash including firmware, nvs and appcfg; run install afterwards")
+    erase.add_argument("--confirm", default="", help="Required exact confirmation: ERASE_FLASH")
     return parser
 
 
@@ -237,6 +239,9 @@ def main(argv: list[str] | None = None, runner: Runner | None = None) -> int:
             raise FlashError("restore-config replaces appcfg and requires --confirm RESTORE_CONFIG")
         if not arguments.file.is_file() or arguments.file.stat().st_size != CONFIG_SIZE:
             raise FlashError("restore-config requires an existing backup of exactly 65536 bytes")
+    elif action == "erase":
+        if arguments.confirm != "ERASE_FLASH":
+            raise FlashError("erase wipes the entire flash including appcfg and requires --confirm ERASE_FLASH")
     if not arguments.dry_run and runner is None:
         require_esptool()
     transport = Transport(arguments.port or "<PORT>", arguments.baud, arguments.dry_run, runner or subprocess_runner)
@@ -255,6 +260,16 @@ def main(argv: list[str] | None = None, runner: Runner | None = None) -> int:
             if not arguments.dry_run and observed != sha256_file(arguments.file):
                 raise FlashError("appcfg restore readback SHA-256 mismatch")
             print("CHECK planned restore readback comparison" if arguments.dry_run else "Verified restored appcfg SHA-256")
+            transport.finish()
+            return 0
+        if action == "erase":
+            print("ERASE wipes the entire flash: firmware, nvs and appcfg; no backup is taken")
+            transport.execute("erase_flash")
+            erased = temporary / "erased-appcfg.bin"
+            transport.read(CONFIG_OFFSET, CONFIG_SIZE, erased)
+            if not arguments.dry_run and erased.read_bytes() != b"\xff" * CONFIG_SIZE:
+                raise FlashError("appcfg is not blank after erase")
+            print("CHECK planned blank appcfg readback" if arguments.dry_run else "Verified appcfg is blank; run install to flash firmware again")
             transport.finish()
             return 0
         if action == "update":
