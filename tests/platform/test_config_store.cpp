@@ -63,6 +63,7 @@ int main() {
     setup(issue, existing);
     gateway::ConfigStore store;
     assert(!store.begin() && !store.writable() && store.generatedCredentials());
+    if (issue == Fault::Init) assert(store.error() == "Failed to open appcfg partition: test error. Original configuration is not reset automatically");
     assert(store.saved().web_password.size() == 24 && store.saved().web_password != "ups");
     if (existing) assert(disk == "stored" && writes == 0);
   }

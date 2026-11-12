@@ -8,11 +8,10 @@ configuration/control; a single application slot; persistent configuration
 across normal serial firmware updates; modular UPS drivers.
 
 The supplied KPM220/DL801 archive is a behavioral reference, not source code
-for this target. The actual Inform Sinus EVO serial dialect is unverified.
-Ship a documented, selectable MegaTec Q1 driver, clearly labelled as a
-candidate for this UPS. Never manufacture charge/runtime or claim hardware
-validation. Destructive controls require an explicit configuration opt-in
-and per-command confirmation. No automated output cycling.
+for this target. Inform Sinus EVO speaks MegaTec Q1; the selectable driver is
+`megatec_q1`. Never manufacture charge/runtime or claim hardware validation
+that was not actually performed. Destructive controls require an explicit
+configuration opt-in and per-command confirmation. No automated output cycling.
 
 Implementation: PlatformIO espressif32 6.12.0, Arduino ESP32 2.0.17,
 C++17, ArduinoJson 6.21.5, built-in ETH, esp_http_server, NVS. One factory app at

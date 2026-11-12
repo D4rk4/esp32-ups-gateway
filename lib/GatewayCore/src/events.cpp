@@ -18,28 +18,28 @@ const char* eventName(EventType t) {
 }
 const char* eventMessage(EventType t) {
   switch(t){
-    case EventType::LinkLost:return "Потеря связи с ИБП";
-    case EventType::LinkEstablished:return "Связь с ИБП установлена";
-    case EventType::OnBattery:return "ИБП работает от батареи";
-    case EventType::PowerRestored:return "Сетевое питание восстановлено";
-    case EventType::LowBattery:return "Низкий заряд батареи";
-    case EventType::LowBatteryCleared:return "Признак низкого заряда снят";
-    case EventType::UpsFault:return "ИБП сообщает об общей неисправности";
-    case EventType::UpsFaultCleared:return "Признак общей неисправности снят";
-    case EventType::TestStarted:return "ИБП выполняет тест";
-    case EventType::TestEnded:return "Тест завершён; результат не сообщается протоколом";
-    case EventType::ShutdownPending:return "ИБП сообщает об активной процедуре отключения";
-    case EventType::ShutdownCancelled:return "Признак процедуры отключения снят";
-    case EventType::CommandQueued:return "Команда поставлена в очередь";
-    case EventType::CommandSent:return "Команда передана; выполнение не подтверждено";
-    case EventType::CommandFailed:return "Команда не выполнена";
-    case EventType::TestTrap:return "Проверка канала SNMP traps; состояние ИБП не изменялось";
-    case EventType::Startup:return "Шлюз запущен";
-    case EventType::ThresholdRaised:return "Настроенный порог превышен";
-    case EventType::ThresholdCleared:return "Настроенный порог снят";
-    case EventType::ScheduleResult:return "Результат расписания";
-    case EventType::ClockChanged:return "Время шлюза изменено";
-    case EventType::SyslogTest:return "Проверка UDP syslog; доставка не подтверждается";
+    case EventType::LinkLost:return "Communication with UPS lost";
+    case EventType::LinkEstablished:return "Communication with UPS established";
+    case EventType::OnBattery:return "UPS is on battery";
+    case EventType::PowerRestored:return "Utility power restored";
+    case EventType::LowBattery:return "Low battery";
+    case EventType::LowBatteryCleared:return "Low battery condition cleared";
+    case EventType::UpsFault:return "UPS reports a general fault";
+    case EventType::UpsFaultCleared:return "General fault condition cleared";
+    case EventType::TestStarted:return "UPS test in progress";
+    case EventType::TestEnded:return "Test ended; the protocol does not report the result";
+    case EventType::ShutdownPending:return "UPS reports a shutdown in progress";
+    case EventType::ShutdownCancelled:return "Shutdown condition cleared";
+    case EventType::CommandQueued:return "Command queued";
+    case EventType::CommandSent:return "Command sent; execution not confirmed";
+    case EventType::CommandFailed:return "Command failed";
+    case EventType::TestTrap:return "SNMP trap channel test; UPS status unchanged";
+    case EventType::Startup:return "Gateway started";
+    case EventType::ThresholdRaised:return "Configured threshold exceeded";
+    case EventType::ThresholdCleared:return "Configured threshold cleared";
+    case EventType::ScheduleResult:return "Schedule result";
+    case EventType::ClockChanged:return "Gateway time changed";
+    case EventType::SyslogTest:return "UDP syslog test; delivery not confirmed";
   }return "";
 }
 uint32_t powerNetTrapNumber(EventType t) {

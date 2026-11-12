@@ -4,7 +4,7 @@ Production source: `web/index.html`. It is embedded by `tools/embed_web.py` as d
 
 ## Shell and session
 
-The 750 px desktop shell, 140 px left navigation, 10–11 px Verdana typography, blue/pale-blue palette, compact tables and beveled controls follow the extracted classic APC AOS/RPDU reference. Decorative GIF/JPEG resources are embedded as data URIs. Branding is **UPS Gateway**, with explicit independent-product attribution. A narrow viewport scrolls horizontally; it is not redesigned as a modern card dashboard.
+The 750 px desktop shell, 140 px left navigation, 10–11 px Verdana typography, blue/pale-blue palette, compact tables and beveled controls follow the extracted classic APC AOS/RPDU reference. Decorative GIF/JPEG resources are embedded as data URIs. The login heading and About page identify the product as **UPS Gateway**; there are no top or bottom branding strips. A narrow viewport scrolls horizontally; it is not redesigned as a modern card dashboard.
 
 | UI action / page | Real route | Roles / behavior |
 |---|---|---|
@@ -42,12 +42,12 @@ Every mutation other than login sends the per-session `X-CSRF-Token`. HTTP and J
 | General → Date & Time | `GET /api/time`; `GET /api/config`; `POST /api/config {ntp_enabled,ntp_server,timezone}` | Active device-local time/POSIX timezone shown separately from saved form. UI does not reinterpret device time in the browser's timezone. |
 | General → manual clock | `POST /api/time {utc:…}` | Explicit UTC input and confirmation; disabled while active NTP is enabled. Picker limits and validation use `time.min_utc` / `time.max_utc` from the actual target clock. The pinned target maximum is 2038-01-19 03:14:07 UTC; no unconditional 2099 support is claimed. |
 | General → Preferences | `POST /api/config {date_format,temperature_unit,default_page}` | Three date formats; C/F; Home/Status/Events/Data default page. Active session preferences remain until reboot. |
-| General → Quick Links | `POST /api/config {quick_links:[…]}` | Up to three title/http(s)-URL pairs; 32/192 UTF-8 byte bounds. Active links open with `noopener noreferrer`. |
+| General → Quick Links | `POST /api/config {quick_links:[…]}` | Up to three title/http(s)-URL pairs; 32/192 UTF-8 byte bounds. Link settings remain available for configuration; the shell no longer renders a Quick Links panel. |
 | General → Export | `GET /api/config/export` | Admin-only explicit warning; downloaded JSON contains actual saved secrets. No secrets are printed in the UI. |
 | General → Import | `POST /api/config` | Schema 1/2 JSON up to 12288 bytes, review before submission, server atomic validation, reboot required. Scheduled power changes require fresh typed consent. |
 | General → Reset | `POST /api/reset-config {confirm:"RESET_CONFIG",keep_network:boolean}` | Custom dialog accurately states access credentials/communities are preserved, optionally IPv4. Not labeled a complete flash erase. |
 | General → Reboot | `POST /api/reboot {confirm:"REBOOT"}` | Custom dialog explains temporary connection/session loss, pending config and potential changed IP. No UPS power command implied. |
-| About / Capabilities | `GET /api/capabilities`, `/api/about` | Real server-supported function matrix, hardware/storage/protocol diagnostics, attribution and unsupported service descriptions. |
+| About / Capabilities | `GET /api/capabilities`, `/api/about` | Real server-supported function matrix, hardware/storage/protocol diagnostics and unsupported service descriptions. |
 
 ## Non-implemented original APC services
 

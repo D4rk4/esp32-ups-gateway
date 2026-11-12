@@ -8,7 +8,7 @@
 namespace ups {
 namespace {
 constexpr std::size_t kMaxLine = 160;
-const DriverInfo kInfo{"megatec_q1", "MegaTec Q1 (Sinus EVO: verify compatibility)",
+const DriverInfo kInfo{"megatec_q1", "MegaTec Q1",
     2400, CapBeeper | CapTest | CapTestCancel | CapShutdownCancel | CapOutputOff | CapOutputRestart};
 
 std::vector<std::string> fields(const std::string& line) {

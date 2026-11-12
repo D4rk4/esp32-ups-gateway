@@ -29,6 +29,7 @@ int main() {
   assert(out.location=="server room"&&out.web_user=="ups"&&out.web_password=="ups");
   assert(!mergeConfigJson(out,"{\"web_user\":\"admin\"}",c,e));
   assert(!mergeConfigJson(out,"{\"web_password\":\"short\"}",c,e));
+  assert(!mergeConfigJson(out,"{\"hostname\":12}",c,e)); assert(e=="Field hostname: expected a string");
   const char* invalid[]={
     "[]","null","123","{} trailing","{}{}","{\"poll_ms\":\"2000\"}","{\"poll_ms\":true}",
     "{\"poll_ms\":2000.5}","{\"poll_ms\":-1}","{\"poll_ms\":4294969296}","{\"dhcp\":1}",

@@ -179,12 +179,14 @@ esp_err_t WebService::status(httpd_req_t* r){
   auto ups=document.createNestedObject("ups");ups["connected"]=fresh;ups["status_valid"]=fresh;ups["stale_ms"]=active_.stale_ms;
   if(state.successful_polls)ups["age_ms"]=age;else ups["age_ms"]=nullptr;
   ups["driver"]=active_.driver;ups["manufacturer"]=state.manufacturer;ups["model"]=state.model;ups["firmware"]=state.firmware;ups["serial"]=state.serial;
-  metric(ups,"input_voltage",state.input_voltage,fresh);metric(ups,"output_voltage",state.output_voltage,fresh);metric(ups,"load_percent",state.load_percent,fresh);
+  metric(ups,"input_voltage",state.input_voltage,fresh);metric(ups,"input_fault_voltage",state.input_fault_voltage,fresh);metric(ups,"output_voltage",state.output_voltage,fresh);metric(ups,"load_percent",state.load_percent,fresh);
   metric(ups,"input_frequency",state.input_frequency,fresh);metric(ups,"output_frequency",state.output_frequency,fresh);
   metric(ups,"battery_voltage_raw",state.battery_voltage_raw,fresh);metric(ups,"battery_voltage",state.battery_voltage,fresh);
   metric(ups,"battery_charge",state.battery_charge,fresh);metric(ups,"runtime_seconds",state.runtime_seconds,fresh);
   metric(ups,"ups_temperature",state.ups_temperature,fresh);metric(ups,"battery_temperature",state.battery_temperature,fresh);
+  metric(ups,"nominal_voltage",state.nominal_voltage,fresh);metric(ups,"nominal_current",state.nominal_current,fresh);metric(ups,"nominal_battery_voltage",state.nominal_battery_voltage,fresh);metric(ups,"nominal_frequency",state.nominal_frequency,fresh);
   ups["output_mode"]=modeName(state,fresh);flag(ups,"mains_failed",state.mains_failed,fresh);flag(ups,"low_battery",state.low_battery,fresh);flag(ups,"ups_fault",state.ups_fault,fresh);
+  flag(ups,"bypass_or_avr",state.bypass_or_avr,fresh);flag(ups,"standby_topology",state.standby_topology,fresh);
   flag(ups,"test_running",state.test_running,fresh);flag(ups,"shutdown_active",state.shutdown_active,fresh);flag(ups,"beeper_on",state.beeper_on,fresh);
   if(fresh){ups["raw_status"]=state.raw_status;ups["last_status_line"]=state.last_status_line;}else{ups["raw_status"]=nullptr;ups["last_status_line"]=nullptr;}
   ups["successful_polls"]=state.successful_polls;ups["errors"]=state.errors;
@@ -250,8 +252,7 @@ esp_err_t WebService::about(httpd_req_t* r){
   {Lock lock(config_mutex_);storage["config_ok"]=store_.writable();storage["config_error"]=store_.error();}
   auto network=document.createNestedObject("network");network["ip"]=ETH.localIP().toString();network["link_up"]=ETH.linkUp();network["http_port"]=80;
   auto protocol=document.createNestedObject("protocol");protocol["driver"]=active_.driver;protocol["baud"]=active_.baud;protocol["tx_pin"]=UPS_UART_TX;protocol["rx_pin"]=UPS_UART_RX;
-  protocol["compatibility"]="Selected UPS protocol requires physical compatibility validation";protocol["commands_acknowledged"]=false;
-  document["attribution"]="Classic layout inspired by APC AOS 3.9.4 / RPDU 3.9.3. Independent UPS Gateway firmware; not an APC Network Management Card.";
+  protocol["commands_acknowledged"]=false;
   unsupported(document.createNestedArray("unsupported_services"));return json(r,document);
 }
 

@@ -27,10 +27,16 @@ int main(){
   factory.web_user="ups"; factory.web_password="short"; assert(!validateConfig(factory,err));
   factory.web_password="12345678901"; assert(!validateConfig(factory,err));
   factory.web_password="123456789012"; assert(validateConfig(factory,err));
-  c.stale_ms=2500; assert(!validateConfig(c,err));
+  c=base(); c.operator_enabled=false; c.operator_password=std::string(65,'x'); std::string longPasswordError; const bool longPasswordValid=validateConfig(c,longPasswordError);
+  c=base(); c.operator_enabled=false; c.operator_password="a\tb"; std::string controlPasswordError; const bool controlPasswordValid=validateConfig(c,controlPasswordError);
+  assert(!longPasswordValid&&!controlPasswordValid);
+  const std::string passwordError="Operator and read-only passwords: up to 64 bytes without control characters; enabled accounts need at least 12 bytes";
+  const bool longPasswordMessageCorrect=longPasswordError==passwordError, controlPasswordMessageCorrect=controlPasswordError==passwordError;
+  assert(longPasswordMessageCorrect&&controlPasswordMessageCorrect);
+  c=base(); c.stale_ms=2500; assert(!validateConfig(c,err));
   c=base(); c.battery_multiplier=std::numeric_limits<float>::quiet_NaN(); assert(!validateConfig(c,err));
   c=base(); c.web_password="short"; assert(!validateConfig(c,err));
-  c=base(); c.hostname="bad host"; assert(!validateConfig(c,err));
+  c=base(); c.hostname="bad host"; assert(!validateConfig(c,err)); assert(err=="Gateway name: letters, digits and hyphens only");
   c=base(); c.dhcp=false; c.netmask="255.0.255.0"; assert(!validateConfig(c,err));
   c=base(); c.dhcp=false; c.ip="192.168.1.0"; assert(!validateConfig(c,err));
   c=base(); c.dhcp=false; c.gateway="192.168.2.1"; assert(!validateConfig(c,err));

@@ -134,7 +134,7 @@ int main() {
     assert(!driver.encodeCommand(Command::OutputRestart,{1,restore},out,error) && out.bytes.empty());
   assert(!driver.encodeCommand(static_cast<Command>(999),{},out,error) && out.bytes.empty());
   assert(std::string(driver.info().id)=="megatec_q1" && driver.info().default_baud==2400);
-  assert(std::string(driver.info().label)=="MegaTec Q1 (Sinus EVO: verify compatibility)");
+  assert(std::string(driver.info().label)=="MegaTec Q1");
   assert(drivers().size()==1 && findDriver("megatec_q1")==drivers()[0] && !findDriver("unknown"));
   std::cout << "Driver tests: all assertions passed\n";
 }

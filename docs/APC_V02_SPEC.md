@@ -11,7 +11,7 @@ Build on working 0.1.0 and its modular driver architecture. Port the classic
 APC navigation and management workflows to the UPS gateway. Keep the clear
 750 px desktop composition, 140 px sidebar, blue/grey palette, compact tables
 and Verdana typography; permit horizontal scrolling on small viewports.
-Brand the live firmware as UPS Gateway and identify APC assets in attribution.
+Brand the live firmware as UPS Gateway.
 
 The user subsequently explicitly required APC-like load indication. Use its
 narrow vertical beveled gauge with 20 segments and measured UPS percentage,
@@ -36,7 +36,7 @@ fixtures, explicitly labelled in screenshots, and excluded from firmware.
 - ESP32-POE WROOM 16MB, MOD-RS232 TX4/RX36, existing LAN8720 configuration.
 - One factory app 0x10000/0x3F0000; appcfg 0xF00000/0x10000. No flash-layout
   changes or automatic NVS erasure. USB update retains the backup/hash check.
-- MegaTec Q1 remains a candidate requiring physical compatibility testing.
+- Inform Sinus EVO uses MegaTec Q1 via the `megatec_q1` driver.
 - Missing UPS values remain null; stale samples never become live values.
 - Commands require role, capabilities, fresh status and control opt-ins.
   Power commands additionally require POWER confirmation. Sending is not ACK.

@@ -10,7 +10,7 @@ constexpr size_t kMaxJson = kMaxConfigJson;
 constexpr size_t kDocumentCapacity = kConfigDocumentCapacity;
 
 bool fieldError(std::string& error, const char* key, const char* detail) {
-  error = std::string("Поле ") + key + ": " + detail;
+  error = std::string("Field ") + key + ": " + detail;
   return false;
 }
 // ArduinoJson stops reading after the first document. Reject trailing data as
@@ -45,33 +45,33 @@ bool oneDocument(const std::string& text) {
 bool stringField(JsonObjectConst object, const char* key, std::string& target,
                  bool secret, bool importing, std::string& error) {
   if (!object.containsKey(key)) {
-    return !importing || fieldError(error, key, "отсутствует в сохранённой конфигурации");
+    return !importing || fieldError(error, key, "missing from saved configuration");
   }
   const auto value = object[key];
-  if (!value.is<const char*>()) return fieldError(error, key, "ожидается строка");
+  if (!value.is<const char*>()) return fieldError(error, key, "expected a string");
   const JsonString string = value.as<JsonString>();
   const std::string parsed(string.c_str(), string.size());
   if (secret && parsed.empty()) {
-    if (importing) return fieldError(error, key, "секрет не должен быть пустым");
+    if (importing) return fieldError(error, key, "secret must not be empty");
     return true; // A blank field in the redacted edit form retains its secret.
   }
   // Keep the exact byte length: embedded NUL must not silently truncate strings.
   for (const unsigned char c : parsed)
-    if (c < 32 || c == 127) return fieldError(error, key, "управляющие символы запрещены");
+    if (c < 32 || c == 127) return fieldError(error, key, "control characters are not allowed");
   target = parsed;
   return true;
 }
 bool boolField(JsonObjectConst object, const char* key, bool& target,
                bool importing, std::string& error) {
-  if (!object.containsKey(key)) return !importing || fieldError(error, key, "отсутствует");
-  if (!object[key].is<bool>()) return fieldError(error, key, "ожидается true или false");
+  if (!object.containsKey(key)) return !importing || fieldError(error, key, "missing");
+  if (!object[key].is<bool>()) return fieldError(error, key, "expected true or false");
   target = object[key].as<bool>();
   return true;
 }
 bool uintField(JsonObjectConst object, const char* key, uint32_t& target,
                bool importing, std::string& error) {
-  if (!object.containsKey(key)) return !importing || fieldError(error, key, "отсутствует");
-  if (!object[key].is<uint32_t>()) return fieldError(error, key, "ожидается целое число 0–4294967295");
+  if (!object.containsKey(key)) return !importing || fieldError(error, key, "missing");
+  if (!object[key].is<uint32_t>()) return fieldError(error, key, "expected an integer from 0–4294967295");
   target = object[key].as<uint32_t>();
   return true;
 }
@@ -86,19 +86,19 @@ bool mergeConfigJson(const Config& base, const std::string& json, Config& out,
                      std::string& error, bool importing) {
   error.clear();
   if (json.empty() || json.size() > kMaxJson) {
-    error = "Конфигурация должна содержать 1–12288 байт JSON"; return false;
+    error = "Configuration must contain 1–12288 bytes of JSON"; return false;
   }
-  if (!oneDocument(json)) { error = "Ожидается один JSON-объект без лишних данных"; return false; }
+  if (!oneDocument(json)) { error = "Expected one JSON object without extra data"; return false; }
   DynamicJsonDocument document(kDocumentCapacity);
   const auto parseError = deserializeJson(document, json);
   if (parseError || document.overflowed()) {
-    error = std::string("Ошибка JSON: ") + (parseError ? parseError.c_str() : "недостаточно памяти"); return false;
+    error = std::string("JSON error: ") + (parseError ? parseError.c_str() : "out of memory"); return false;
   }
-  if (!document.is<JsonObject>()) { error = "Ожидается JSON-объект"; return false; }
+  if (!document.is<JsonObject>()) { error = "Expected a JSON object"; return false; }
   const JsonObjectConst object = document.as<JsonObjectConst>();
   uint32_t source_schema=base.schema;
   if(!uintField(object,"schema",source_schema,importing,error))return false;
-  if(source_schema!=1&&source_schema!=2){error="Неподдерживаемая версия конфигурации";return false;}
+  if(source_schema!=1&&source_schema!=2){error="Unsupported configuration version";return false;}
   Config candidate = importing&&source_schema==1 ? Config{} : base;
   candidate.schema=2;
 #define UINT_FIELD(key) if (!uintField(object, #key, candidate.key, importing, error)) return false
@@ -133,63 +133,63 @@ bool mergeConfigJson(const Config& base, const std::string& json, Config& out,
 #undef STRING_FIELD
 #undef BOOL_FIELD
   if(object.containsKey("quick_links")){
-    if(!object["quick_links"].is<JsonArrayConst>()||object["quick_links"].size()>3)return fieldError(error,"quick_links","ожидается массив до трёх ссылок");
+    if(!object["quick_links"].is<JsonArrayConst>()||object["quick_links"].size()>3)return fieldError(error,"quick_links","expected an array of up to three links");
     candidate.quick_links={}; size_t i=0;
     for(const auto item:object["quick_links"].as<JsonArrayConst>()){
-      if(!item.is<JsonObjectConst>())return fieldError(error,"quick_links","ожидаются объекты");
+      if(!item.is<JsonObjectConst>())return fieldError(error,"quick_links","expected objects");
       const auto link=item.as<JsonObjectConst>();auto& target=candidate.quick_links[i++];
       if(!stringField(link,"title",target.title,false,true,error)||!stringField(link,"url",target.url,false,true,error))return false;
     }
-  }else if(require_new)return fieldError(error,"quick_links","отсутствует");
+  }else if(require_new)return fieldError(error,"quick_links","missing");
   if(object.containsKey("schedules")){
-    if(!object["schedules"].is<JsonArrayConst>()||object["schedules"].size()>8)return fieldError(error,"schedules","ожидается массив до восьми расписаний");
+    if(!object["schedules"].is<JsonArrayConst>()||object["schedules"].size()>8)return fieldError(error,"schedules","expected an array of up to eight schedules");
     candidate.schedules.clear();
     for(const auto item:object["schedules"].as<JsonArrayConst>()){
-      if(!item.is<JsonObjectConst>())return fieldError(error,"schedules","ожидаются объекты");
+      if(!item.is<JsonObjectConst>())return fieldError(error,"schedules","expected objects");
       const auto rule=item.as<JsonObjectConst>();ScheduleRule r;
       if(!uintField(rule,"id",r.id,true,error)||!boolField(rule,"enabled",r.enabled,true,error)||
          !stringField(rule,"name",r.name,false,true,error)||!stringField(rule,"command",r.command,false,true,error)||
          !uintField(rule,"delay_minutes",r.delay_minutes,true,error)||!uintField(rule,"restore_minutes",r.restore_minutes,true,error)||
          !stringField(rule,"mode",r.mode,false,true,error)||!uintField(rule,"days_mask",r.days_mask,true,error)||
          !uintField(rule,"minute_of_day",r.minute_of_day,true,error))return false;
-      if(!rule["at_utc"].is<uint64_t>())return fieldError(error,"at_utc","ожидается целое UTC время");
+      if(!rule["at_utc"].is<uint64_t>())return fieldError(error,"at_utc","expected an integer UTC time");
       r.at_utc=rule["at_utc"].as<uint64_t>();candidate.schedules.push_back(std::move(r));
     }
-  }else if(require_new)return fieldError(error,"schedules","отсутствует");
+  }else if(require_new)return fieldError(error,"schedules","missing");
   if (object.containsKey("battery_multiplier")) {
     const auto value = object["battery_multiplier"];
-    if (!value.is<double>()) return fieldError(error, "battery_multiplier", "ожидается число");
+    if (!value.is<double>()) return fieldError(error, "battery_multiplier", "expected a number");
     const double multiplier = value.as<double>();
     if (!std::isfinite(multiplier) || multiplier < 0 || multiplier > 1000)
-      return fieldError(error, "battery_multiplier", "допустимо 0–1000");
+      return fieldError(error, "battery_multiplier", "allowed range is 0–1000");
     candidate.battery_multiplier = static_cast<float>(multiplier);
-  } else if (importing) return fieldError(error, "battery_multiplier", "отсутствует");
+  } else if (importing) return fieldError(error, "battery_multiplier", "missing");
   if (object.containsKey("traps")) {
-    if (!object["traps"].is<JsonArrayConst>()) return fieldError(error, "traps", "ожидается массив из двух объектов");
+    if (!object["traps"].is<JsonArrayConst>()) return fieldError(error, "traps", "expected an array of two objects");
     const auto traps = object["traps"].as<JsonArrayConst>();
-    if (traps.size() != candidate.traps.size()) return fieldError(error, "traps", "требуется ровно два объекта");
+    if (traps.size() != candidate.traps.size()) return fieldError(error, "traps", "exactly two objects are required");
     for (size_t i=0; i<candidate.traps.size(); ++i) {
-      if (!traps[i].is<JsonObjectConst>()) return fieldError(error, "traps", "каждый элемент должен быть объектом");
+      if (!traps[i].is<JsonObjectConst>()) return fieldError(error, "traps", "each element must be an object");
       const auto trap = traps[i].as<JsonObjectConst>(); auto& target = candidate.traps[i];
       uint32_t port = target.port;
       if (!boolField(trap,"enabled",target.enabled,importing,error) ||
           !stringField(trap,"ip",target.ip,false,importing,error) ||
           !uintField(trap,"port",port,importing,error) ||
           !stringField(trap,"community",target.community,true,importing,error)) return false;
-      if (port < 1 || port > 65535) return fieldError(error,"traps.port","допустимо 1–65535");
+      if (port < 1 || port > 65535) return fieldError(error,"traps.port","allowed range is 1–65535");
       target.port = static_cast<uint16_t>(port);
     }
-  } else if (importing) return fieldError(error,"traps","отсутствует");
+  } else if (importing) return fieldError(error,"traps","missing");
   // Disabled targets still need intact credentials for a complete persisted record.
   for (const auto& trap : candidate.traps) {
-    if (!secretValid(trap.community)) return fieldError(error,"traps.community","требуется 1–64 байта без управляющих символов");
-    if (trap.ip.size()>15) return fieldError(error,"traps.ip","максимум 15 байт");
+    if (!secretValid(trap.community)) return fieldError(error,"traps.community","requires 1–64 bytes without control characters");
+    if (trap.ip.size()>15) return fieldError(error,"traps.ip","maximum 15 bytes");
   }
   for (const auto* address : {&candidate.ip, &candidate.netmask, &candidate.gateway, &candidate.dns, &candidate.snmp_manager_ip})
-    if (address->size() > 15) return fieldError(error,"IPv4","максимум 15 байт");
+    if (address->size() > 15) return fieldError(error,"IPv4","maximum 15 bytes");
   if (!validateConfig(candidate,error)) return false;
   const auto* driver=ups::findDriver(candidate.driver);
-  if (!driver) return fieldError(error,"driver","неизвестный драйвер ИБП");
+  if (!driver) return fieldError(error,"driver","unknown UPS driver");
   for(const auto& rule:candidate.schedules){
     ups::Command command=ups::Command::TestShort;
     if(rule.command=="beeper_toggle")command=ups::Command::BeeperToggle;

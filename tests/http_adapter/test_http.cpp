@@ -54,6 +54,8 @@ void public_and_roles(){
   for(const char* path:{"/api/status","/api/capabilities","/api/alarms","/api/history","/api/history.csv","/api/events","/api/events.csv","/api/time","/api/schedules","/api/notifications","/api/about"}){
     response=fixture::request(HTTP_GET,path,"",viewer.cookie);check(code(response)==200,"viewer can use every read-only management endpoint");
   }
+  const auto about=payload(response);check(!about.containsKey("attribution")&&!about["protocol"].containsKey("compatibility"),"about omits removed attribution and compatibility notices");
+  check(about["protocol"].containsKey("commands_acknowledged")&&!about["protocol"]["commands_acknowledged"].as<bool>(),"about retains command acknowledgement state");
   for(const auto* account:{&viewer,&op})for(const char* path:{"/api/config","/api/config/export"}){
     response=fixture::request(HTTP_GET,path,"",account->cookie);check(code(response)==403,"viewer/operator cannot read configuration or secret export");
     check(response.response.find("admin-passphrase-123")==std::string::npos,"denied export never leaks a secret");
@@ -116,10 +118,23 @@ void filters_status_and_handlers(){
   check(code(fixture::request(HTTP_GET,"/api/events?limit=1&limit=48","",admin.cookie))==400,"duplicate query cannot override validation");
   check(code(fixture::request(HTTP_GET,"/api/%68istory?limit=7","",admin.cookie))==200&&fixture::history_limit==7,"decoded path and query dispatch to real history handler");
   check(code(fixture::request(HTTP_GET,"/api/history?limit=241","",admin.cookie))==400,"history capacity bounds are enforced");
+  fixture::snapshot.input_fault_voltage={201,true};fixture::snapshot.nominal_voltage={230,true};fixture::snapshot.nominal_current={6,true};
+  fixture::snapshot.nominal_battery_voltage={24,true};fixture::snapshot.nominal_frequency={50,true};fixture::snapshot.bypass_or_avr=true;fixture::snapshot.standby_topology=false;
+  fixture::snapshot.manufacturer=std::string(15,'M');fixture::snapshot.model=std::string(10,'D');fixture::snapshot.firmware=std::string(10,'F');fixture::snapshot.raw_status=std::string(8,'1');fixture::snapshot.last_status_line=std::string(160,'S');device.active.hostname=std::string(32,'h');
   response=fixture::request(HTTP_GET,"/api/status","",admin.cookie);data=payload(response);
-  check(data["ups"]["load_percent"].as<int>()==37&&data["thresholds"]["alarm_load_high"].as<int>()==90,"all read roles can render live load against active threshold");
+  check(code(response)==200&&data["ups"]["manufacturer"].as<std::string>()==fixture::snapshot.manufacturer&&data["ups"]["model"].as<std::string>()==fixture::snapshot.model&&data["ups"]["firmware"].as<std::string>()==fixture::snapshot.firmware&&data["ups"]["last_status_line"].as<std::string>()==fixture::snapshot.last_status_line&&data["hostname"].as<std::string>()==device.active.hostname&&data["traps"].containsKey("queued"),"full status document serializes with maximum driver identity and frame strings");
+  check(code(response)==200&&data["ups"]["load_percent"].as<int>()==37&&data["thresholds"]["alarm_load_high"].as<int>()==90,"all read roles can render live load against active threshold");
   check(data["ups"]["stale_ms"].as<unsigned>()==device.active.stale_ms,"status exposes the actual active stale boundary for browser aging");
+  const char* added[]={"input_fault_voltage","nominal_voltage","nominal_current","nominal_battery_voltage","nominal_frequency","bypass_or_avr","standby_topology"};
+  for(const auto* key:added)check(data["ups"].containsKey(key),"status includes each added metric and flag");
+  check(data["ups"]["input_fault_voltage"].as<int>()==201&&data["ups"]["nominal_voltage"].as<int>()==230&&data["ups"]["nominal_current"].as<int>()==6&&data["ups"]["nominal_battery_voltage"].as<int>()==24&&data["ups"]["nominal_frequency"].as<int>()==50,"fresh status exposes parsed metrics");
+  check(data["ups"]["bypass_or_avr"].is<bool>()&&data["ups"]["bypass_or_avr"].as<bool>()&&data["ups"]["standby_topology"].is<bool>()&&!data["ups"]["standby_topology"].as<bool>(),"fresh status exposes both parsed flags");
+  fixture::snapshot.nominal_voltage.valid=false;fixture::snapshot.nominal_current.valid=false;fixture::snapshot.nominal_battery_voltage.valid=false;fixture::snapshot.nominal_frequency.valid=false;
+  response=fixture::request(HTTP_GET,"/api/status","",admin.cookie);data=payload(response);
+  for(const auto* key:{"nominal_voltage","nominal_current","nominal_battery_voltage","nominal_frequency"})check(data["ups"].containsKey(key)&&data["ups"][key].isNull(),"unreported rating is present and null");
+  fixture::snapshot.nominal_voltage.valid=true;fixture::snapshot.nominal_current.valid=true;fixture::snapshot.nominal_battery_voltage.valid=true;fixture::snapshot.nominal_frequency.valid=true;
   fixture::now=12000;response=fixture::request(HTTP_GET,"/api/status","",admin.cookie);data=payload(response);
+  for(const auto* key:added)check(data["ups"].containsKey(key)&&data["ups"][key].isNull(),"stale added metric or flag is present and null");
   check(data["ups"]["load_percent"].isNull()&&data["ups"]["input_voltage"].isNull()&&!data["ups"]["connected"].as<bool>()&&data["ups"]["low_battery"].isNull(),"stale readings and flags become null even before UART owner updates connected");
   check(code(fixture::request(HTTP_POST,"/api/command","{\"command\":\"test_short\",\"confirm\":\"EXECUTE\"}",admin.cookie,admin.csrf))==409,"backend stale rejection is preserved as conflict");
   check(code(fixture::request(HTTP_POST,"/api/time","{\"utc\":1794000000}",admin.cookie,admin.csrf))==409&&fixture::manual_utc==0,"manual time cannot override enabled NTP");
