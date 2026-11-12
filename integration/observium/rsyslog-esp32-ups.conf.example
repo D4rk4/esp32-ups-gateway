@@ -1,0 +1,17 @@
+# Example for a receiver with NO existing UDP/514 input.
+# If imudp or omprog is loaded already, do not load it twice. If UDP/514 is
+# bound already, integrate the rule/template into that listener instead.
+module(load="imudp")
+module(load="omprog")
+
+# Important: hostname is the verified gateway IP inserted by our adapter.
+# fromhost / fromhost-ip would identify 127.0.0.1 here, losing device identity.
+template(name="esp32_ups_observium" type="string"
+  string="%hostname%||%syslogfacility%||%syslogpriority%||%syslogseverity%||%syslogtag%||%$year%-%$month%-%$day% %timereported:8:25%||%msg:::space-cc%||%programname%\n")
+
+ruleset(name="esp32_ups_local") {
+  if ($fromhost-ip != "127.0.0.1" or $programname != "esp32-ups-trap" or $hostname != "REPLACE_GATEWAY_IPV4") then { stop }
+  action(type="omprog" binary="/opt/observium/syslog.php" template="esp32_ups_observium")
+  stop
+}
+input(type="imudp" address="127.0.0.1" port="514" ruleset="esp32_ups_local")

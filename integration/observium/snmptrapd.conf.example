@@ -1,0 +1,7 @@
+# Replace every REPLACE_* value. Restrict UDP/162 to the gateway in the firewall.
+# Firmware emits SNMPv2c TRAP; this is not a v3/INFORM configuration.
+# authCommunity also authorizes v1 at Net-SNMP level; see README_RU.md.
+snmpTrapdAddr udp:REPLACE_RECEIVER_IPV4:162
+authCommunity log,execute REPLACE_TRAP_COMMUNITY REPLACE_GATEWAY_IPV4
+outputOption n
+traphandle default /usr/bin/python3 /usr/local/lib/esp32-ups/trap_to_syslog.py --allow-source REPLACE_GATEWAY_IPV4

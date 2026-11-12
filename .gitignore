@@ -1,0 +1,10 @@
+.pio/
+.venv/
+build/
+dist/
+__pycache__/
+*.pyc
+*.local.json
+
+src/web_assets.hpp
+backups/

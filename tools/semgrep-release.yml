@@ -1,0 +1,25 @@
+# Small local baseline, not a complete security ruleset.
+rules:
+  - id: unsafe-c-copy
+    languages: [c, cpp]
+    severity: ERROR
+    message: Unbounded C string copy or formatting.
+    pattern-either:
+      - pattern: strcpy(...)
+      - pattern: strcat(...)
+      - pattern: sprintf(...)
+      - pattern: gets(...)
+  - id: python-shell-execution
+    languages: [python]
+    severity: ERROR
+    message: Shell execution needs review.
+    pattern-either:
+      - pattern: os.system(...)
+      - pattern: subprocess.$F(..., shell=True, ...)
+  - id: javascript-dynamic-code
+    languages: [javascript]
+    severity: ERROR
+    message: Dynamic JavaScript execution needs review.
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: new Function(...)
