@@ -108,23 +108,27 @@ bool validValue(const Element& e) {
     default: return false;
   }
 }
-struct InputBind { Oid oid; Slice wire; };
+struct InputBind { Oid oid; Value value; Slice wire; };
 struct Request {
   uint8_t pdu = 0;
   int32_t id = 0, first = 0, second = 0;
+  bool writable = false;
+  std::string community;
   std::vector<InputBind> bindings;
 };
-bool parse(const uint8_t* data, size_t size, const std::string& community, Request& req) {
-  if (!data || size == 0 || size > kPacket || community.size() > kCommunity) return false;
+bool parse(const uint8_t* data, size_t size, const std::string& readCommunity, const std::string& writeCommunity, Request& req) {
+  if (!data || size == 0 || size > kPacket || readCommunity.size() > kCommunity || writeCommunity.size() > kCommunity) return false;
   Reader root({data, size}); Element outer;
   if (!root.read(0x30, outer) || !root.done()) return false;
   Reader message(outer.body); int32_t version;
   Element comm, pdu;
   if (!signedField(message, version) || version != 1 || !message.read(4, comm) ||
-      comm.body.size > kCommunity || comm.body.size != community.size() ||
-      !std::equal(community.begin(), community.end(), comm.body.data,
-                  [](char a, uint8_t b) { return uint8_t(a) == b; }) ||
-      !message.read(pdu) || !message.done()) return false;
+      comm.body.size > kCommunity || !message.read(pdu) || !message.done()) return false;
+  const auto matches=[&](const std::string& community){return comm.body.size==community.size() &&
+      std::equal(community.begin(),community.end(),comm.body.data,[](char a,uint8_t b){return uint8_t(a)==b;});};
+  req.writable=!writeCommunity.empty()&&matches(writeCommunity);
+  if (!req.writable && !matches(readCommunity)) return false;
+  req.community=req.writable?writeCommunity:readCommunity;
   if (pdu.tag != 0xa0 && pdu.tag != 0xa1 && pdu.tag != 0xa3 && pdu.tag != 0xa5) return false;
   req.pdu = pdu.tag;
   Reader body(pdu.body); Element bindings;
@@ -139,6 +143,11 @@ bool parse(const uint8_t* data, size_t size, const std::string& community, Reque
     InputBind item;
     if (!fields.read(6, oid) || !decodeOid(oid.body, item.oid) ||
         !fields.read(value) || !validValue(value) || !fields.done()) return false;
+    item.value.type=static_cast<Type>(value.tag);
+    if(value.tag==0x02)decodeSigned(value,item.value.integer);
+    else if(value.tag==0x04||value.tag==0x40||value.tag==0x44)item.value.text.assign(reinterpret_cast<const char*>(value.body.data),value.body.size);
+    else if(value.tag==0x06)decodeOid(value.body,item.value.oid);
+    else if(value.tag>=0x41&&value.tag<=0x43){for(size_t i=0;i<value.body.size;++i)item.value.unsigned_value=(item.value.unsigned_value<<8)|value.body.data[i];}
     item.wire = binding.wire;
     req.bindings.push_back(std::move(item));
   }
@@ -234,6 +243,17 @@ bool nextValue(const Provider& provider, const Oid& from, Oid& name, Value& valu
 }
 }  // namespace
 
+bool ReplayGuard::lookup(uint32_t address,uint16_t port,const uint8_t* request,size_t size,uint64_t now,std::vector<uint8_t>& response) const {
+  if(!valid_||!request||size!=request_size_||address!=address_||port!=port_||now<stored_ms_||now-stored_ms_>=10000||
+     !std::equal(request_.begin(),request_.begin()+request_size_,request))return false;
+  response.assign(response_.begin(),response_.begin()+response_size_);return true;
+}
+bool ReplayGuard::store(uint32_t address,uint16_t port,const uint8_t* request,size_t size,const std::vector<uint8_t>& response,uint64_t now) {
+  if(!request||!size||size>kCapacity||response.empty()||response.size()>kCapacity)return false;
+  std::copy_n(request,size,request_.begin());std::copy(response.begin(),response.end(),response_.begin());
+  request_size_=size;response_size_=response.size();address_=address;port_=port;stored_ms_=now;valid_=true;return true;
+}
+
 bool parseOid(const std::string& text, Oid& output) {
   output.clear();
   // Each of 32 uint32 arcs needs at most ten digits plus a dot.
@@ -262,20 +282,32 @@ std::string oidString(const Oid& oid) {
   return text;
 }
 
-bool processRequest(const uint8_t* data, size_t size, const std::string& community,
-                    const Provider& provider, std::vector<uint8_t>& output) {
+bool processRequest(const uint8_t* data, size_t size, const std::string& readCommunity,
+                    const std::string& writeCommunity, const Provider& provider, Writer* writer, std::vector<uint8_t>& output) {
   output.clear();
   Request request;
-  if (!parse(data, size, community, request)) return false;
+  if (!parse(data, size, readCommunity, writeCommunity, request)) return false;
+  const auto& community=request.community;
   Bytes bindings;
   bool fits = true;
   int32_t error = 0, errorIndex = 0;
   if (request.pdu == 0xa3) {
-    // There is deliberately no mutation API. Echo validated varbind encodings,
-    // including valid v2c types not represented by the read-only Value API.
-    error = 17; errorIndex = 1;
     for (const auto& item : request.bindings)
       if (!(fits = append(bindings, item.wire.data, item.wire.size))) break;
+    // Confirm the complete echo fits before allowing any irreversible action.
+    Bytes probe;
+    if (!fits || !envelope(community,0xa2,request.id,0,0,bindings,probe)) {
+      output.clear();return envelope(community,0xa2,request.id,1,0,{},output);
+    }
+    if (!request.bindings.empty()) {
+      if (!request.writable || !writer) { error=17;errorIndex=1; }
+      else {
+        std::vector<VarBind> values;values.reserve(request.bindings.size());
+        for (const auto& item:request.bindings) values.push_back({item.oid,item.value});
+        size_t index=0;error=writer->set(values,index);
+        if (error) errorIndex=static_cast<int32_t>(index);
+      }
+    }
   } else if (request.pdu != 0xa5) {
     for (const auto& item : request.bindings) {
       Oid name;

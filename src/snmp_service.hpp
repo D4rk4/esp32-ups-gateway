@@ -1,6 +1,7 @@
 #pragma once
 #include <atomic>
 #include <cstdint>
+#include "snmp.hpp"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -29,6 +30,7 @@ class SnmpService {
   UpsService& ups_;
   EventBus& events_;
   const uint32_t boot_id_;
+  snmp::ReplayGuard replay_;
   TaskHandle_t task_{nullptr};
   std::atomic<uint32_t> sent_{0}, failed_{0};
 };

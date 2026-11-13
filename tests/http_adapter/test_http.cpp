@@ -124,7 +124,17 @@ void config_and_body_bounds(){
   response=fixture::request(HTTP_GET,"/api/config/export","",admin.cookie);data=payload(response);
   check(!data.containsKey("confirm")&&data["schedules"].size()==1,"transient POWER confirmation is absent from exports");
   check(code(post("{\"location\":\"room two\"}"))==200,"unrelated config edit does not require repeated power confirmation");
-  check(code(fixture::request(HTTP_POST,"/api/reset-config","{\"confirm\":\"RESET_CONFIG\",\"keep_network\":true}",admin.cookie,admin.csrf))==200&&device.store.saved().web_password=="admin-passphrase-123","functional reset preserves access credentials");
+  check(code(post("{\"snmp_write_community\":\"test-write-community\"}"))==200&&device.store.saved().snmp_write_community=="test-write-community","administrator can configure write community");
+  response=post("{\"snmp_write_community\":\"private-trap-community\",\"traps\":[{\"enabled\":true,\"ip\":\"192.0.2.20\"},{\"enabled\":false}]}");
+  check(code(response)==400&&response.response.find("Enabled trap community must differ")!=std::string::npos&&device.store.saved().snmp_write_community=="test-write-community","enabled trap cannot disclose write community");
+  response=fixture::request(HTTP_GET,"/api/config","",admin.cookie);data=payload(response);
+  check(data["snmp_write_community"].as<std::string>().empty()&&data["snmp_write_community_set"].as<bool>(),"write community is redacted with presence flag");
+  response=fixture::request(HTTP_GET,"/api/config/export","",admin.cookie);data=payload(response);
+  check(data["snmp_write_community"].as<std::string>()=="test-write-community","secret export preserves write community");
+  check(code(post("{\"location\":\"room three\"}"))==200&&device.store.saved().snmp_write_community=="test-write-community","omitted write community retains secret");
+  check(code(post("{\"snmp_write_community\":\"\"}"))==200&&device.store.saved().snmp_write_community.empty(),"explicit empty write community disables SET");
+  check(code(post("{\"snmp_write_community\":\"test-write-community\"}"))==200,"write community can be reconfigured");
+  check(code(fixture::request(HTTP_POST,"/api/reset-config","{\"confirm\":\"RESET_CONFIG\",\"keep_network\":true}",admin.cookie,admin.csrf))==200&&device.store.saved().web_password=="admin-passphrase-123"&&device.store.saved().snmp_write_community.empty(),"functional reset preserves access credentials and disables SET");
 }
 void filters_status_and_handlers(){
   Device device;const auto admin=login("admin");

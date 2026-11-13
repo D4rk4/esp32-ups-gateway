@@ -25,6 +25,23 @@ constexpr uint32_t kBindRetryMs = 1000;
 constexpr uint64_t kTrapMaxAgeMs = 30000;
 constexpr TickType_t kTaskDelay = pdMS_TO_TICKS(5) ? pdMS_TO_TICKS(5) : 1;
 
+class PowerNetWriter final : public snmp::Writer {
+ public:
+  PowerNetWriter(UpsService& ups,const ups::Snapshot& snapshot,bool fresh):ups_(ups),snapshot_(snapshot),fresh_(fresh){}
+  int32_t set(const std::vector<snmp::VarBind>& bindings,size_t& errorIndex) override {
+    invoked=true;
+    PowerNetControlAction action;
+    const int32_t error=mapPowerNetSet(bindings,snapshot_,fresh_,action,errorIndex);
+    if(error||!action.pending)return error;
+    uint32_t id=0;std::string reason;
+    if(!ups_.enqueue(action.command,action.args,id,reason)){errorIndex=action.index;return 12;}
+    return 0;
+  }
+  bool invoked{false};
+ private:
+  UpsService& ups_;const ups::Snapshot& snapshot_;bool fresh_;
+};
+
 bool ipv4(const std::string& text, IPAddress& address) {
   uint32_t parsed = 0;
   if (!parseIPv4(text, parsed)) return false;
@@ -171,13 +188,20 @@ void SnmpService::run() {
         listener.flush();
         if (received != length) continue;
 
-        // Each packet sees one consistent snapshot, copied under UpsService's
-        // own mutex. No serial transaction or socket I/O holds that mutex.
-        const auto snapshot = ups_.snapshot();
-        const uint32_t ticks = uint32_t(uptimeMs() / 10);
-        const PowerNetMib mib(config_, snapshot, ticks, FIRMWARE_VERSION);
-        if (!snmp::processRequest(input.data(), size_t(length), config_.snmp_community,
-                                  mib, output)) continue;
+        const uint64_t now=uptimeMs();
+        if (!replay_.respond(uint32_t(manager),managerPort,input.data(),size_t(length),now,
+            [&](std::vector<uint8_t>& response,bool& invoked) {
+              // Each new packet sees one consistent snapshot. Replays reuse
+              // the original response without sampling or invoking the writer.
+              const auto snapshot = ups_.snapshot();
+              const uint32_t ticks = uint32_t(now / 10);
+              const PowerNetMib mib(config_, snapshot, ticks, FIRMWARE_VERSION);
+              const bool fresh=snapshot.connected&&snapshot.status_valid&&uint32_t(uint32_t(now)-snapshot.last_success_ms)<config_.stale_ms;
+              PowerNetWriter writer(ups_,snapshot,fresh);
+              const bool ok=snmp::processRequest(input.data(),size_t(length),config_.snmp_community,
+                                                 config_.snmp_write_community,mib,&writer,response);
+              invoked=writer.invoked;return ok;
+            },output)) continue;
         if (!sendDatagram(listener, manager, managerPort, output)) {
           // Reset any partially prepared transmission and rebind later. This
           // request is not retried and cannot send an incomplete BER payload.

@@ -61,6 +61,7 @@ bool validateConfig(const Config& c, std::string& e) {
   if(!textOk(c.operator_password,c.operator_enabled?12:0,64)||!textOk(c.readonly_password,c.readonly_enabled?12:0,64))return fail("Operator and read-only passwords: up to 64 bytes without control characters; enabled accounts need at least 12 bytes");
   if((c.operator_enabled&&c.operator_user==c.web_user)||(c.readonly_enabled&&c.readonly_user==c.web_user)||(c.operator_enabled&&c.readonly_enabled&&c.operator_user==c.readonly_user))return fail("Enabled usernames must be distinct");
   if(!textOk(c.snmp_community,1,64))return fail("SNMP community: 1–64 bytes");
+  if(!textOk(c.snmp_write_community,0,64)||(!c.snmp_write_community.empty()&&c.snmp_write_community==c.snmp_community))return fail("SNMP write community: maximum 64 bytes, different from read community");
   uint32_t address=0,mask=0,gw=0,dns=0;
   if(!c.snmp_manager_ip.empty()&&(!parseIPv4(c.snmp_manager_ip,address)||!unicast(address)))return fail("Invalid SNMP manager IPv4 address");
   if(!c.dhcp) {
@@ -74,6 +75,7 @@ bool validateConfig(const Config& c, std::string& e) {
   for(const auto& t:c.traps)if(t.enabled){
     if(!parseIPv4(t.ip,address)||!unicast(address)||t.port==0)return fail("Trap requires a unicast IPv4 address and port 1–65535");
     if(!textOk(t.community,1,64))return fail("Trap community: 1–64 bytes");
+    if(!c.snmp_write_community.empty()&&t.community==c.snmp_write_community)return fail("Enabled trap community must differ from SNMP write community");
   }
   if(c.session_timeout_min<1||c.session_timeout_min>240)return fail("Session timeout: 1–240 minutes");
   if(!hostOk(c.ntp_server))return fail("NTP server: hostname or IPv4, 1–63 ASCII bytes");

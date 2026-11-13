@@ -1,4 +1,5 @@
 #include "snmp.hpp"
+#include "powernet_mib.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <stdexcept>
@@ -417,6 +418,133 @@ void exact_get_response() {
   };
   CHECK(run(request(0xa0,7,0,0,{bind(O1)}))==expected);
 }
+void write_requests() {
+  snmp::Oid off,diagnostic;CHECK(snmp::parseOid("1.3.6.1.4.1.318.1.1.1.6.2.1.0",off));CHECK(snmp::parseOid("1.3.6.1.4.1.318.1.1.1.7.2.2.0",diagnostic));
+  struct TestWriter final:snmp::Writer {
+    ups::Snapshot snapshot;int actions=0,calls=0;bool reject=false;ups::Command last{};ups::CommandArgs args;
+    int32_t set(const std::vector<snmp::VarBind>& values,size_t& index) override {
+      ++calls;gateway::PowerNetControlAction action;const int32_t result=gateway::mapPowerNetSet(values,snapshot,true,action,index);
+      if(result)return result;if(action.pending){if(reject){index=action.index;return 12;}++actions;last=action.command;args=action.args;}return 0;
+    }
+  } writer;
+  auto call=[&](const Bytes& q){Bytes output;CHECK(snmp::processRequest(q.data(),q.size(),"public","write",mib(),&writer,output));return decode(output);};
+  for(const auto* community:{"public","write"}){
+    const auto empty=call(request(0xa3,6,0,0,{},community));
+    CHECK(empty.status==0&&empty.index==0&&empty.binds.empty()&&writer.calls==0);
+  }
+  Bytes emptyOut;auto emptyRequest=request(0xa3,6,0,0,{},"write");
+  CHECK(snmp::processRequest(emptyRequest.data(),emptyRequest.size(),"public","write",mib(),nullptr,emptyOut));
+  CHECK(decode(emptyOut).status==0&&decode(emptyOut).index==0&&writer.calls==0);
+  auto result=call(request(0xa3,7,0,0,{bind(off,si(2))},"write"));
+  CHECK(result.status==0&&result.index==0&&result.binds.size()==1&&result.binds[0].first==off&&integer(result.binds[0].second)==2);
+  CHECK(writer.actions==1&&writer.last==ups::Command::OutputOff&&writer.args.delay_seconds==12);
+  result=call(request(0xa3,8,0,0,{bind(off,si(2))},"public"));CHECK(result.status==17&&result.index==1&&writer.actions==1&&writer.calls==1);
+  result=call(request(0xa3,9,0,0,{bind(off,tlv(4,{'x'}))},"write"));CHECK(result.status==7&&result.index==1&&writer.actions==1&&result.binds[0].second.tag==4);
+  result=call(request(0xa3,10,0,0,{bind(off,si(9))},"write"));CHECK(result.status==10&&result.index==1&&writer.actions==1);
+  result=call(request(0xa3,11,0,0,{bind(O1,si(2))},"write"));CHECK(result.status==17&&result.index==1&&writer.actions==1);
+  result=call(request(0xa3,12,0,0,{bind(off,si(2)),bind(diagnostic,si(2))},"write"));CHECK(result.status==12&&result.index==2&&writer.actions==1&&result.binds.size()==2);
+  result=call(request(0xa3,16,0,0,{bind(off,si(2)),bind(diagnostic,si(9))},"write"));CHECK(result.status==10&&result.index==2&&writer.actions==1);
+  result=call(request(0xa3,17,0,0,{bind(diagnostic,si(1)),bind(off,si(1))},"write"));CHECK(result.status==0&&result.index==0&&writer.actions==1);
+  writer.reject=true;result=call(request(0xa3,13,0,0,{bind(diagnostic,si(1)),bind(off,si(2))},"write"));CHECK(result.status==12&&result.index==2&&writer.actions==1);
+  result=call(request(0xa0,14,0,0,{bind(O1)},"write"));CHECK(result.status==0&&result.binds[0].second.b==Bytes({'U','P','S'}));
+  Bytes output;auto disabled=request(0xa3,15,0,0,{bind(off,si(2))},"");CHECK(!snmp::processRequest(disabled.data(),disabled.size(),"public","",mib(),&writer,output));
+}
+void set_replay_guard() {
+  struct CountingWriter final:snmp::Writer {
+    int calls=0;
+    int32_t set(const std::vector<snmp::VarBind>& values,size_t& index) override {
+      CHECK(values.size()==1&&values[0].value.type==snmp::Type::Integer);
+      ++calls;index=0;return 0;
+    }
+  } writer;
+  snmp::ReplayGuard cache;
+  const uint32_t manager=0xc0000201;const uint16_t port=4567;
+  const Bytes first=request(0xa3,1,0,0,{bind(O1,si(2))},"write");
+  const Bytes second=request(0xa3,2,0,0,{bind(O1,si(2))},"write");
+  const Bytes get=request(0xa0,3,0,0,{bind(O1)},"write");
+  int calls=0;bool fail=false,markInvokedOnFailure=false;
+  auto call=[&](uint32_t ip,uint16_t sourcePort,const Bytes& q,uint64_t now,Bytes& out){
+    return cache.respond(ip,sourcePort,q.data(),q.size(),now,[&](Bytes& response,bool& invoked){
+      ++calls;if(fail){invoked=markInvokedOnFailure;response={42};return false;}
+      const int before=writer.calls;
+      const bool ok=snmp::processRequest(q.data(),q.size(),"public","write",mib(),&writer,response);
+      invoked=writer.calls!=before;return ok;
+    },out);
+  };
+  Bytes original,out;
+  CHECK(call(manager,port,first,1000,original)&&calls==1&&writer.calls==1);
+  CHECK(call(manager,port,first,10999,out)&&out==original&&calls==1&&writer.calls==1);
+  // Non-invoking requests run every time and cannot evict the last SET.
+  CHECK(call(manager,port,get,11000,out)&&calls==2&&writer.calls==1);
+  CHECK(call(manager,port,get,11001,out)&&calls==3&&writer.calls==1);
+  CHECK(call(manager,port,first,11002,out)&&calls==4&&writer.calls==2); // original expired
+  CHECK(call(manager,port,get,11003,out)&&calls==5&&writer.calls==2);
+  CHECK(call(manager,port,first,11004,out)&&out==original&&calls==5&&writer.calls==2);
+  // A failed process is not cached, even if it reports invoking the writer.
+  fail=true;markInvokedOnFailure=true;
+  CHECK(!call(manager,port,second,11005,out)&&calls==6);
+  CHECK(!call(manager,port,second,11006,out)&&calls==7);
+  fail=false;CHECK(call(manager,port,first,11007,out)&&out==original&&calls==7);
+  CHECK(call(manager,port,second,11008,out)&&calls==8&&writer.calls==3);
+  CHECK(call(manager,port,first,11009,out)&&calls==9&&writer.calls==4); // intervening SET evicted it
+  CHECK(call(manager,port,first,21009,out)&&calls==10&&writer.calls==5); // 10 s
+  CHECK(call(manager,port+1,first,21010,out)&&calls==11&&writer.calls==6);
+  CHECK(call(manager+1,port+1,first,21011,out)&&calls==12&&writer.calls==7);
+  auto changed=first;changed.back()=3;
+  CHECK(call(manager+1,port+1,changed,21012,out)&&calls==13&&writer.calls==8);
+  const Bytes changedResponse=out;
+  CHECK(call(manager+1,port+1,changed,21013,out)&&out==changedResponse&&calls==13);
+  // Fixed capacity rejects oversized records without evicting the previous one.
+  Bytes oversized(1401,'x');
+  CHECK(!cache.store(manager,port,oversized.data(),oversized.size(),original,21014));
+  CHECK(!cache.store(manager,port,first.data(),first.size(),oversized,21014));
+  CHECK(call(manager+1,port+1,changed,21014,out)&&out==changedResponse&&calls==13);
+  CHECK(call(manager+1,port+1,changed,21011,out)&&calls==14); // clock moved backwards
+  Bytes maximum(1400,'q'),maximumResponse(1400,'r');
+  CHECK(cache.store(manager,port,maximum.data(),maximum.size(),maximumResponse,30000));
+  CHECK(cache.lookup(manager,port,maximum.data(),maximum.size(),30000,out)&&out==maximumResponse);
+}
+void write_protocol_edges() {
+  struct RecordingWriter final:snmp::Writer {
+    std::vector<snmp::VarBind> values;size_t calls=0;int32_t status=0;size_t statusIndex=0;
+    int32_t set(const std::vector<snmp::VarBind>& input,size_t& index) override {
+      ++calls;values=input;index=statusIndex;return status;
+    }
+  } writer;
+  const auto invoke=[&](const Bytes& q,Bytes& output,snmp::Writer* selected){return snmp::processRequest(q.data(),q.size(),"public","write",mib(),selected,output);};
+  const auto name=O1;
+  const std::vector<Bytes> encoded={si(-123),tlv(4,{'a',0,'b'}),tlv(5,{}),obj({1,3,6,1}),tlv(0x40,{192,0,2,1}),tlv(0x41,{0,255,255,255,255}),tlv(0x42,{127}),tlv(0x43,{1}),tlv(0x44,{1,2}),tlv(0x46,{0,255,255,255,255,255,255,255,255})};
+  std::vector<Bytes> wires;for(const auto& value:encoded)wires.push_back(bind(name,value));
+  Bytes out;auto q=request(0xa3,55,0,0,wires,"write");CHECK(invoke(q,out,&writer));
+  auto result=decode(out);CHECK(result.status==0&&result.index==0&&result.binds.size()==encoded.size());
+  CHECK(writer.values.size()==encoded.size()&&writer.values[0].value.type==snmp::Type::Integer&&writer.values[0].value.integer==-123);
+  CHECK(writer.values[1].value.type==snmp::Type::OctetString&&writer.values[1].value.text==std::string("a\0b",3));
+  CHECK(writer.values[2].value.type==snmp::Type::Null&&writer.values[3].value.oid==snmp::Oid({1,3,6,1}));
+  CHECK(writer.values[4].value.type==snmp::Type::IpAddress&&writer.values[4].value.text.size()==4);
+  CHECK(writer.values[5].value.type==snmp::Type::Counter32&&writer.values[5].value.unsigned_value==UINT32_MAX);
+  CHECK(writer.values[6].value.type==snmp::Type::Gauge32&&writer.values[6].value.unsigned_value==127);
+  CHECK(writer.values[7].value.type==snmp::Type::TimeTicks&&writer.values[7].value.unsigned_value==1);
+  CHECK(writer.values[8].value.type==snmp::Type::Opaque&&writer.values[9].value.type==snmp::Type::Counter64);
+  for(size_t i=0;i<encoded.size();++i){Reader reader{encoded[i]};auto expected=reader.read();CHECK(reader.end());CHECK(result.binds[i].second.tag==expected.tag&&result.binds[i].second.b==expected.b);}
+  writer.status=10;writer.statusIndex=2;CHECK(invoke(q,out,&writer));result=decode(out);CHECK(result.status==10&&result.index==2);
+  q=request(0xa3,56,0,0,{bind(name,si(2))},"write");CHECK(invoke(q,out,nullptr));result=decode(out);CHECK(result.status==17&&result.index==1);
+  const size_t calls=writer.calls;q=request(0xa1,57,0,0,{bind(O1)},"write");CHECK(invoke(q,out,&writer));result=decode(out);CHECK(result.status==0&&result.binds[0].first==O2&&writer.calls==calls);
+  q=request(0xa3,58,0,0,{bind(name,si(2))},"other");CHECK(!invoke(q,out,&writer)&&out.empty()&&writer.calls==calls);
+  // Noncanonical length encodings are accepted and the complete original
+  // varbind wire is echoed byte-for-byte rather than reconstructed.
+  Bytes wire=bind(name,si(2));CHECK(wire[1]<128);wire.insert(wire.begin()+1,0x81);
+  q=request(0xa3,59,0,0,{wire},"write");writer.status=0;CHECK(invoke(q,out,&writer));
+  CHECK(std::search(out.begin(),out.end(),wire.begin(),wire.end())!=out.end());
+  // The protocol cap applies to the entire packet including the echo. At the
+  // exact boundary, a valid SET must still be delivered without truncation.
+  bool boundary=false;for(size_t n=1200;n<1400&&!boundary;++n){
+    q=request(0xa3,60,0,0,{bind(name,tlv(4,Bytes(n,'x')))},"write");
+    if(q.size()!=1400)continue;
+    const size_t before=writer.calls;CHECK(invoke(q,out,&writer));result=decode(out);
+    CHECK(result.status==0&&result.binds.size()==1&&writer.calls==before+1&&out.size()<=1400);boundary=true;
+  }
+  CHECK(boundary);
+}
 void mutation_corpus() {
   const auto original=request(0xa5,-19,1,3,{bind(O1),bind(O2)});
   Mib provider=mib();
@@ -441,11 +569,11 @@ void mutation_corpus() {
 
 int main() {
   int fails=0;
-  for(auto test:{oid_text,get_bytes,get_missing,next_order,bulk_columns,set_rejected,malformed,too_big,trap,oid_wire_boundaries,bulk_bound,bulk_size_limited_prefix,strict_integer_encoding,trap_limits,exact_get_response,mutation_corpus}) {
+  for(auto test:{oid_text,get_bytes,get_missing,next_order,bulk_columns,set_rejected,write_requests,set_replay_guard,write_protocol_edges,malformed,too_big,trap,oid_wire_boundaries,bulk_bound,bulk_size_limited_prefix,strict_integer_encoding,trap_limits,exact_get_response,mutation_corpus}) {
     try{test();
     }catch(const std::exception&e) {
       std::fprintf(stderr,"FAIL %s\n",e.what());
       ++fails;
     }}if(fails)return 1;
-  std::puts("SNMP tests: 16 groups passed");
+  std::puts("SNMP tests: 19 groups passed");
 }

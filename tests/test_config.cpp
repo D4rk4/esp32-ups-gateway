@@ -11,6 +11,17 @@ int main(){
   uint32_t ip=0; assert(parseIPv4("192.168.1.20",ip)&&ip==0xc0a80114u);
   for(const auto* s:{"1.2.3","256.2.3.4","1.2.3.4.5","1.2.3.-1","1.2.3.04"," 1.2.3.4","1.2.3.4x"})assert(!parseIPv4(s,ip));
   std::string err; auto c=base(); assert(validateConfig(c,err));
+  assert(c.snmp_write_community.empty());c.snmp_write_community="write-test";assert(validateConfig(c,err));
+  c.snmp_write_community=c.snmp_community;assert(!validateConfig(c,err));
+  c.snmp_write_community=std::string(65,'x');assert(!validateConfig(c,err));
+  c.snmp_write_community=std::string("invalid\nwrite");assert(!validateConfig(c,err));
+  c.snmp_write_community="write-test";assert(defaultsPreservingAccess(c,true).snmp_write_community.empty());
+  c.traps[0].enabled=true;c.traps[0].ip="192.0.2.5";c.traps[0].community=c.snmp_write_community;
+  assert(!validateConfig(c,err)&&err.find("trap")!=std::string::npos&&err.find("write")!=std::string::npos);
+  c.traps[0].enabled=false;assert(validateConfig(c,err));
+  c.traps[1].enabled=true;c.traps[1].ip="192.0.2.6";c.traps[1].community=c.snmp_write_community;assert(!validateConfig(c,err));
+  c.traps[1].enabled=false;c.traps[0].enabled=true;c.snmp_write_community.clear();assert(validateConfig(c,err));
+  c.traps[0].enabled=false;c.traps[0].ip.clear();c.traps[0].community="trap-test";c.traps[1].ip.clear();c.traps[1].community="trap-test";
   Config factory; factory.snmp_community="read-test"; for(auto& t:factory.traps)t.community="trap-test";
   assert(factory.web_user=="ups"&&factory.web_password=="ups"&&validateConfig(factory,err));
   const std::array<auth::Account,3> factoryAccounts{{

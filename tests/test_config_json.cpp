@@ -10,6 +10,17 @@ static Config base() {
 }
 int main() {
   auto c=base(); Config out=base(); std::string e;
+  c.snmp_write_community="sensitive-write-community";
+  assert(mergeConfigJson(c,"{\"hostname\":\"ups-office\",\"poll_ms\":3000}",out,e));
+  assert(out.snmp_write_community==c.snmp_write_community);
+  const auto redactedWrite=configJson(c,false);assert(redactedWrite.find(c.snmp_write_community)==std::string::npos);
+  DynamicJsonDocument writeDoc(8192);assert(!deserializeJson(writeDoc,redactedWrite));assert(writeDoc["snmp_write_community"].as<std::string>().empty()&&writeDoc["snmp_write_community_set"].as<bool>());
+  assert(mergeConfigJson(c,"{\"snmp_write_community\":\"\"}",out,e)&&out.snmp_write_community.empty());
+  assert(mergeConfigJson(c,"{\"snmp_write_community\":\"new-write-value\"}",out,e)&&out.snmp_write_community=="new-write-value");
+  assert(!mergeConfigJson(c,"{\"snmp_write_community\":\"unique-snmp-community\"}",out,e));
+  assert(mergeConfigJson(Config{},configJson(c,true),out,e,true)&&out.snmp_write_community==c.snmp_write_community);
+  DynamicJsonDocument oldSaved(24576);assert(!deserializeJson(oldSaved,configJson(c,true)));oldSaved.remove("snmp_write_community");std::string oldJson;serializeJson(oldSaved,oldJson);
+  assert(mergeConfigJson(c,oldJson,out,e,true)&&out.snmp_write_community.empty());
   assert(mergeConfigJson(c,"{\"hostname\":\"ups-office\",\"poll_ms\":3000}",out,e));
   assert(out.hostname=="ups-office"&&out.poll_ms==3000&&c.hostname=="ups-gateway");
   assert(mergeConfigJson(c,"{\"web_password\":\"\",\"snmp_community\":\"\",\"traps\":[{\"community\":\"\"},{}]}",out,e));
@@ -19,7 +30,9 @@ int main() {
   DynamicJsonDocument redacted(8192); assert(!deserializeJson(redacted,publicJson));
   assert(redacted["web_password"].as<std::string>().empty()&&redacted["web_password_set"].as<bool>());
   assert(redacted["traps"][0]["community_set"].as<bool>());
-  assert(mergeConfigJson(c,publicJson,out,e)&&configJson(out,true)==configJson(c,true));
+  assert(mergeConfigJson(c,publicJson,out,e)&&out.snmp_write_community.empty());
+  c.snmp_write_community.clear();
+  assert(mergeConfigJson(c,configJson(c,false),out,e)&&configJson(out,true)==configJson(c,true));
   assert(mergeConfigJson(Config{},configJson(c,true),out,e,true));
   assert(configJson(out,true)==configJson(c,true));
   Config factory; factory.snmp_community="private-community"; for(auto& target:factory.traps)target.community=factory.snmp_community;

@@ -1,16 +1,60 @@
 #include "powernet_mib.hpp"
+#include "driver_registry.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
 namespace gateway {
+namespace {
+struct Control { const char* suffix; ups::Command command; ups::Command alternate; };
+constexpr Control controls[]={
+  {"6.2.1.0",ups::Command::OutputOff,ups::Command::OutputOff},
+  {"6.1.1.0",ups::Command::OutputRestart,ups::Command::OutputRestart},
+  {"6.2.2.0",ups::Command::OutputRestart,ups::Command::OutputRestart},
+  {"6.2.5.0",ups::Command::BeeperToggle,ups::Command::BeeperToggle},
+  {"6.2.6.0",ups::Command::ShutdownCancel,ups::Command::ShutdownCancel},
+  {"7.2.2.0",ups::Command::TestShort,ups::Command::TestShort},
+  {"7.2.5.0",ups::Command::TestDeep,ups::Command::TestCancel}
+};
+constexpr const char* root="1.3.6.1.4.1.318.1.1.1.";
+const Control* controlFor(const snmp::Oid& name){for(const auto& control:controls){snmp::Oid o;if(snmp::parseOid(std::string(root)+control.suffix,o)&&o==name)return &control;}return nullptr;}
+uint32_t driverCapabilities(const Config& c){const auto* driver=ups::findDriver(c.driver);return driver?driver->info().capabilities:0;}
+bool available(const Config& c,uint32_t capabilities,ups::Command command){
+  const auto* info=ups::findCommand(command);
+  return !c.snmp_write_community.empty()&&c.controls_enabled&&info&&(!info->power||c.power_controls_enabled)&&(capabilities&info->capability);
+}
+}
+int32_t mapPowerNetSet(const std::vector<snmp::VarBind>& bindings,const ups::Snapshot& snapshot,bool fresh,PowerNetControlAction& out,size_t& errorIndex){
+  out={};errorIndex=0;PowerNetControlAction candidate;
+  for(size_t i=0;i<bindings.size();++i){const auto& binding=bindings[i];const auto* control=controlFor(binding.oid);
+    auto fail=[&](int32_t error){errorIndex=i+1;return error;};
+    if(!control)return fail(17);
+    if(binding.value.type!=snmp::Type::Integer)return fail(7);
+    const int32_t value=binding.value.integer;if(value==1)continue;
+    const std::string suffix=control->suffix;
+    const bool supportsThree=suffix=="6.2.1.0"||suffix=="6.2.2.0"||suffix=="7.2.5.0";
+    if(value!=2&&!(value==3&&supportsThree))return fail(10);
+    if(suffix=="6.1.1.0"&&(!fresh||!snapshot.mains_failed))return fail(10);
+    if(candidate.pending)return fail(12);
+    candidate.pending=true;candidate.index=i+1;candidate.command=value==3?control->alternate:control->command;
+    if(value==2&&(suffix=="6.2.1.0"||suffix=="6.2.2.0"))candidate.args.delay_seconds=12;
+  }
+  out=candidate;return 0;
+}
 // Source: APC-authored PowerNet-MIB, https://raw.githubusercontent.com/librenms/librenms/master/mibs/apc/PowerNet-MIB
 // Only a measured, typed subset is implemented. No private enterprise number is claimed.
-PowerNetMib::PowerNetMib(const Config& c,const ups::Snapshot& s,uint32_t uptime,const std::string& firmware){
+PowerNetMib::PowerNetMib(const Config& c,const ups::Snapshot& s,uint32_t uptime,const std::string& firmware)
+  :PowerNetMib(c,s,uptime,firmware,driverCapabilities(c)){}
+PowerNetMib::PowerNetMib(const Config& c,const ups::Snapshot& s,uint32_t uptime,const std::string& firmware,uint32_t capabilities){
   const std::string root="1.3.6.1.4.1.318.1.1.1.";
   auto add=[&](const std::string& oid,snmp::Value value){snmp::Oid o;if(snmp::parseOid(oid,o))entries_.push_back({std::move(o),std::move(value)});};
   auto text=[&](const std::string& oid,const std::string& text){snmp::Value v;v.type=snmp::Type::OctetString;v.text=text;add(oid,v);};
   auto integer=[&](const std::string& oid,int32_t x){snmp::Value v;v.type=snmp::Type::Integer;v.integer=x;add(oid,v);};
   auto unsignedValue=[&](const std::string& oid,uint32_t x,snmp::Type type=snmp::Type::Gauge32){snmp::Value v;v.type=type;v.unsigned_value=x;add(oid,v);};
+  for(const auto& control:controls)if(available(c,capabilities,control.command)&&available(c,capabilities,control.alternate))integer(root+control.suffix,1);
+  if(available(c,capabilities,ups::Command::OutputOff))
+    unsignedValue(root+"5.2.10.0",6000,snmp::Type::TimeTicks);
+  if(available(c,capabilities,ups::Command::OutputRestart))
+    unsignedValue(root+"5.2.9.0",18000,snmp::Type::TimeTicks);
   auto metric=[&](const char* suffix,const ups::Metric& m,float scale=1.0f,bool signed_value=false,bool clamp_zero=false){
     if(!s.connected||!m.valid||!std::isfinite(m.value))return;
     double x=double(m.value)*scale;if(clamp_zero&&x<0)x=0;

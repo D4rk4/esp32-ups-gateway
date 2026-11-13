@@ -62,7 +62,7 @@ The card queues controls through the same MegaTec handler; actual device accepta
 | Cancel shutdown | `C\r` for ordinary profile | Implemented |
 | Delayed shutdown | `S.%d\r` for sub-minute delay or `S%02d\r` for minutes; card clamps ordinary-profile delay to 12–600 s | Implemented: 1–10 min, or 12–54 s in 6 s steps (`S.2`–`S.9`) |
 | Shutdown and restart | `S.%dR%04hu\r` or `S%02dR%04hu\r`; card clamps shutdown delay to 12–600 s and restart field to at most 9999 | Implemented: same delays, restore 3–9999 min |
-| Reboot | `R\r` encoder exists (logs "UPS reboot."), but no caller was found in v1.4.27 or v1.3.13; the card's SNMP `upsSmartControlRebootUps` sends `S.2R0000` instead | Not implemented: no caller, and `R0000` semantics are unknown |
+| Reboot | `R\r` encoder exists (logs "UPS reboot."), but no caller was found in v1.4.27 or v1.3.13; the card's SNMP `upsSmartControlRebootUps` sends `S.2R0000` instead | `R` not implemented: no caller, and `R0000` semantics are unknown. The gateway's SNMP `upsAdvControlRebootShutdownUps` sends `S.2R0003` (see `OIDS.md`) |
 
 Sender literal references: `Q` `0xa4ef0`; `T` `0xa4fac`; `TL` `0xa5090`; `CT` `0xa5018`; `T%02d` `0xa505c`; `R` `0xa50d0`; `S.%d` `0xa51e8`; `S%02d` `0xa51ac`; `C` `0xa52cc`; restart formats `0xa5394`, `0xa541c`. Their enqueue calls are in `0xa4ee8–0xa5464`; literal file offsets are `0x494598–0x494624`. Card delay quantisation (`0xa513c–0xa5290`): input in seconds; ≤ 11 s becomes 12 s; 12–59 s sends `S.<floor(s/6)>`; 60–600 s sends `S<floor(s/60)>`; profile 7 caps at 540 s. The gateway accepts only values that encode exactly (no silent rounding). Real UPS acceptance remains unknown. `SOFF`/`SON` are branches for profile 25, not established plain-profile commands.
 

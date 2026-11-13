@@ -110,6 +110,9 @@ bool mergeConfigJson(const Config& base, const std::string& json, Config& out,
   BOOL_FIELD(controls_enabled); BOOL_FIELD(power_controls_enabled); BOOL_FIELD(dhcp);
   STRING_FIELD(ip); STRING_FIELD(netmask); STRING_FIELD(gateway); STRING_FIELD(dns);
   BOOL_FIELD(snmp_enabled); SECRET_FIELD(snmp_community); STRING_FIELD(snmp_manager_ip);
+  // Older persisted configurations have no write secret; missing means disabled.
+  if (importing && !object.containsKey("snmp_write_community")) candidate.snmp_write_community.clear();
+  else if (!stringField(object,"snmp_write_community",candidate.snmp_write_community,false,false,error)) return false;
   STRING_FIELD(web_user); SECRET_FIELD(web_password);
 #undef UINT_FIELD
 #undef STRING_FIELD
@@ -214,11 +217,13 @@ std::string configJson(const Config& config, bool secrets) {
 #undef FIELD
   document["web_password"] = secrets ? config.web_password : std::string();
   document["snmp_community"] = secrets ? config.snmp_community : std::string();
+  document["snmp_write_community"] = secrets ? config.snmp_write_community : std::string();
   document["operator_password"] = secrets ? config.operator_password : std::string();
   document["readonly_password"] = secrets ? config.readonly_password : std::string();
   if (!secrets) {
     document["web_password_set"] = !config.web_password.empty();
     document["snmp_community_set"] = !config.snmp_community.empty();
+    document["snmp_write_community_set"] = !config.snmp_write_community.empty();
     document["operator_password_set"] = !config.operator_password.empty();
     document["readonly_password_set"] = !config.readonly_password.empty();
   }

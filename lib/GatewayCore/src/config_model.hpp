@@ -23,7 +23,7 @@ struct Config {
   bool dhcp{true};
   std::string ip{"192.168.1.50"}, netmask{"255.255.255.0"}, gateway{"192.168.1.1"}, dns{"192.168.1.1"};
   bool snmp_enabled{true};
-  std::string snmp_community, snmp_manager_ip;
+  std::string snmp_community, snmp_write_community, snmp_manager_ip;
   std::string web_user{"ups"}, web_password{"ups"};
   std::array<TrapTarget,2> traps;
   bool operator_enabled{false}, readonly_enabled{false};
