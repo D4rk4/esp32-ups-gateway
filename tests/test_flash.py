@@ -2,6 +2,7 @@
 import hashlib
 import importlib.util
 import io
+import os
 from pathlib import Path
 import struct
 import sys
@@ -9,7 +10,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 
-MODULE = Path(__file__).resolve().parents[1] / "tools" / "flash.py"
+MODULE = Path(os.path.abspath(__file__)).parents[1] / "tools" / "flash.py"
 spec = importlib.util.spec_from_file_location("gateway_flash", MODULE)
 flash = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = flash

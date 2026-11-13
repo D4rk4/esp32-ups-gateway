@@ -2,12 +2,13 @@
 import datetime as dt
 import importlib.util
 import io
+import os
 import pathlib
 import subprocess
 import sys
 import unittest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(os.path.abspath(__file__)).parents[1]
 ADAPTER = ROOT / "integration/observium/trap_to_syslog.py"
 spec = importlib.util.spec_from_file_location("trap_to_syslog", ADAPTER)
 adapter = importlib.util.module_from_spec(spec)
