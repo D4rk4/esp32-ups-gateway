@@ -191,14 +191,10 @@ bool mergeConfigJson(const Config& base, const std::string& json, Config& out,
   const auto* driver=ups::findDriver(candidate.driver);
   if (!driver) return fieldError(error,"driver","unknown UPS driver");
   for(const auto& rule:candidate.schedules){
-    ups::Command command=ups::Command::TestShort;
-    if(rule.command=="beeper_toggle")command=ups::Command::BeeperToggle;
-    else if(rule.command=="test_cancel")command=ups::Command::TestCancel;
-    else if(rule.command=="shutdown_cancel")command=ups::Command::ShutdownCancel;
-    else if(rule.command=="output_off")command=ups::Command::OutputOff;
-    else if(rule.command=="output_restart")command=ups::Command::OutputRestart;
+    const auto* command=ups::findCommand(rule.command);
+    if(!command)return fieldError(error,"schedules.command","unknown UPS command");
     ups::EncodedCommand encoded;
-    if(!driver->encodeCommand(command,{static_cast<uint16_t>(rule.delay_minutes),static_cast<uint16_t>(rule.restore_minutes)},encoded,error))return false;
+    if(!driver->encodeCommand(command->command,{static_cast<uint16_t>(rule.delay_minutes),static_cast<uint16_t>(rule.restore_minutes)},encoded,error))return false;
   }
   out = std::move(candidate); return true;
 }

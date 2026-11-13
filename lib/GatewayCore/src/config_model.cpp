@@ -1,4 +1,5 @@
 #include "config_model.hpp"
+#include "../../UpsCore/src/ups_model.hpp"
 #include <cmath>
 #include <cctype>
 #include <ctime>
@@ -100,10 +101,11 @@ bool validateConfig(const Config& c, std::string& e) {
     const auto& r=c.schedules[i];
     if(!r.id||r.id>65535||!textOk(r.name,0,48))return fail("Schedule: id 1–65535, name up to 48 bytes");
     for(size_t j=0;j<i;++j)if(c.schedules[j].id==r.id)return fail("Schedule IDs must be distinct");
-    if(r.command!="beeper_toggle"&&r.command!="test_short"&&r.command!="test_cancel"&&r.command!="shutdown_cancel"&&r.command!="output_off"&&r.command!="output_restart")return fail("Unknown schedule command");
+    const auto* command=ups::findCommand(r.command);if(!command)return fail("Unknown schedule command");
     if(r.delay_minutes>65535||r.restore_minutes>65535)return fail("Schedule delays outside the driver range");
-    if((r.command=="output_off"||r.command=="output_restart")&&(r.delay_minutes<1||r.delay_minutes>10))return fail("Shutdown delay: 1–10 minutes");
-    if(r.command=="output_restart"&&(r.restore_minutes<3||r.restore_minutes>9999))return fail("Restore delay: 3–9999 minutes");
+    if((command->command==ups::Command::OutputOff||command->command==ups::Command::OutputRestart)&&(r.delay_minutes<1||r.delay_minutes>10))return fail("Shutdown delay: 1–10 minutes");
+    if(command->command==ups::Command::OutputRestart&&(r.restore_minutes<3||r.restore_minutes>9999))return fail("Restore delay: 3–9999 minutes");
+    if(command->command==ups::Command::TestTimed&&(r.delay_minutes<1||r.delay_minutes>99))return fail("Test duration: 1–99 minutes");
     if(r.mode!="once"&&r.mode!="weekly")return fail("Schedule mode: once or weekly");
     if(r.at_utc>supportedClockMaxUtc()||(r.mode=="once"&&r.at_utc<1577836800ULL))return fail("Schedule UTC must be supported by the system clock and no earlier than 2020");
     if(r.days_mask>127||r.minute_of_day>1439||(r.mode=="weekly"&&!r.days_mask))return fail("Weekly schedule requires days and minute of day 0–1439");

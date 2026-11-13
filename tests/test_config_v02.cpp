@@ -46,6 +46,17 @@ int main() {
   assert(publicDoc["operator_password_set"].as<bool>()&&publicDoc["readonly_password_set"].as<bool>());
   assert(configJson(saved,false).find("operator-secret-123")==std::string::npos);
   assert(mergeConfigJson(base,"{\"schedules\":[{\"id\":1,\"enabled\":false,\"name\":\"Weekly test\",\"command\":\"test_short\",\"delay_minutes\":1,\"restore_minutes\":3,\"mode\":\"weekly\",\"at_utc\":0,\"days_mask\":2,\"minute_of_day\":540}]}",out,error));
+  const auto scheduled=[&](const char* command,unsigned duration){return std::string("{\"schedules\":[{\"id\":1,\"enabled\":false,\"name\":\"test\",\"command\":\"")+command+"\",\"delay_minutes\":"+std::to_string(duration)+",\"restore_minutes\":3,\"mode\":\"weekly\",\"at_utc\":0,\"days_mask\":2,\"minute_of_day\":540}]}";};
+  assert(mergeConfigJson(base,scheduled("test_deep",1),out,error));
+  assert(out.schedules.size()==1&&out.schedules[0].command=="test_deep"&&out.schedules[0].delay_minutes==1);
+  assert(mergeConfigJson(base,scheduled("test_timed",1),out,error));
+  assert(out.schedules.size()==1&&out.schedules[0].command=="test_timed"&&out.schedules[0].delay_minutes==1);
+  assert(mergeConfigJson(base,scheduled("test_timed",99),out,error));
+  assert(out.schedules.size()==1&&out.schedules[0].command=="test_timed"&&out.schedules[0].delay_minutes==99);
+  for(unsigned duration:{0u,100u,65535u})assert(!mergeConfigJson(base,scheduled("test_timed",duration),out,error));
+  Config direct=base;ScheduleRule timed;timed.command="test_timed";timed.mode="weekly";timed.days_mask=2;direct.schedules.push_back(timed);
+  assert(validateConfig(direct,error));direct.schedules[0].delay_minutes=0;assert(!validateConfig(direct,error));
+  direct.schedules[0].delay_minutes=100;assert(!validateConfig(direct,error));direct.schedules[0].command="test_deep";assert(validateConfig(direct,error));
   DynamicJsonDocument duplicate(24576);assert(!deserializeJson(duplicate,configJson(out,true)));
   duplicate["schedules"].as<JsonArray>().add(duplicate["schedules"][0]);
   assert(!mergeConfigJson(base,json(duplicate),out,error));

@@ -8,6 +8,8 @@ extern unsigned fail_error_allocations;
 extern unsigned fail_config_allocations;
 extern size_t history_limit;
 extern ups::Snapshot snapshot;
+extern ups::Command last_command;
+extern ups::CommandArgs last_args;
 extern std::vector<gateway::Event> events;
 extern httpd_config_t server_config;
 extern std::vector<httpd_uri_t> registered;

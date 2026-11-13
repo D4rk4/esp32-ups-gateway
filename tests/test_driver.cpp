@@ -101,8 +101,31 @@ int main() {
   assert(driver.parseReply(PollKind::Identity,id+"\r",s)==ParseResult::Accepted);
   assert(s.manufacturer=="ACME" && s.model=="MODEL-1" && s.firmware=="FW1" && s.serial=="retained");
   assert(driver.parseReply(PollKind::Identity,"#"+std::string(37,' '),s)==ParseResult::Accepted);
-  assert(s.manufacturer.empty() && s.model.empty() && s.firmware.empty());
+  assert(s.manufacturer.empty() && s.model.empty() && s.firmware.empty() && s.serial=="retained");
+  const std::string shortId="!"+std::string("ACME      ")+" "+"MODEL-1   "+" "+"FW1       ";
+  assert(shortId.size()==33);
+  assert(driver.parseReply(PollKind::Identity,shortId+"\r",s)==ParseResult::Accepted);
+  assert(s.manufacturer=="ACME" && s.model=="MODEL-1" && s.firmware=="FW1" && s.serial=="retained");
+  const std::string actualId="!"+std::string(15,' ')+" "+std::string(10,' ')+" "+"V142B000D0";
+  assert(actualId.size()==38 && driver.parseReply(PollKind::Identity,actualId,s)==ParseResult::Accepted);
+  assert(s.manufacturer.empty() && s.model.empty() && s.firmware=="V142B000D0" && s.serial=="retained");
+  const std::string serialId=id+" "+"SN-123"+std::string(15,' ');
+  assert(serialId.size()==60 && driver.parseReply(PollKind::Identity,serialId+"\r",s)==ParseResult::Accepted);
+  assert(s.manufacturer=="ACME" && s.model=="MODEL-1" && s.firmware=="FW1" && s.serial=="SN-123");
+  auto bangSerialId=serialId;bangSerialId[0]='!';
+  assert(driver.parseReply(PollKind::Identity,bangSerialId,s)==ParseResult::Accepted && s.serial=="SN-123");
+  auto hashShortId=shortId;hashShortId[0]='#';
+  assert(driver.parseReply(PollKind::Identity,hashShortId,s)==ParseResult::Accepted && s.serial=="SN-123");
   const auto prior2=fingerprint(s);
+  for (const auto& identity : {shortId,id,serialId}) {
+    for (const auto separator : (identity.size()==33 ? std::vector<size_t>{11,22} :
+                               identity.size()==38 ? std::vector<size_t>{16,27} : std::vector<size_t>{16,27,38})) {
+      auto bad=identity;bad[separator]='x';
+      assert(driver.parseReply(PollKind::Identity,bad,s)==ParseResult::Invalid && fingerprint(s)==prior2);
+    }
+    auto bad=identity;bad[0]='?';
+    assert(driver.parseReply(PollKind::Identity,bad,s)==ParseResult::Invalid && fingerprint(s)==prior2);
+  }
   for (const auto& bad : std::vector<std::pair<PollKind,std::string>>{
       {PollKind::Rating,"#230 10 24 50 extra"},{PollKind::Rating,"#230 -1 24 50"},
       {PollKind::Rating,"#230 10 nan 50"},{PollKind::Identity,id.substr(0,37)},
@@ -122,6 +145,25 @@ int main() {
     assert(driver.encodeCommand(std::get<0>(cmd),{},out,error));
     assert(out.bytes==std::get<1>(cmd) && out.changes_output==std::get<2>(cmd) && out.settle_ms==500 && error.empty());
   }
+  assert((driver.info().capabilities & (CapTestDeep|CapTestTimed))==(CapTestDeep|CapTestTimed));
+  assert(driver.encodeCommand(Command::TestDeep,{},out,error) && out.bytes=="TL\r" && !out.changes_output);
+  for (const auto duration : {uint16_t(1),uint16_t(99)}) {
+    assert(driver.encodeCommand(Command::TestTimed,{duration,3},out,error));
+    assert(out.bytes==(duration==1 ? "T01\r" : "T99\r") && !out.changes_output);
+  }
+  for (const auto duration : {uint16_t(0),uint16_t(100)})
+    assert(!driver.encodeCommand(Command::TestTimed,{duration,3},out,error) && !error.empty() && out.bytes.empty());
+  for (uint16_t seconds=12;seconds<=54;seconds+=6) {
+    assert(driver.encodeCommand(Command::OutputOff,{1,3,seconds},out,error));
+    assert(out.bytes==std::string("S.")+char('0'+seconds/6)+"\r" && out.changes_output);
+  }
+  assert(driver.encodeCommand(Command::OutputRestart,{1,3,12},out,error) && out.bytes=="S.2R0003\r" && out.changes_output);
+  for (const auto seconds : {uint16_t(6),uint16_t(13),uint16_t(60)}) {
+    for (const auto command : {Command::OutputOff,Command::OutputRestart})
+      assert(!driver.encodeCommand(command,{1,3,seconds},out,error) && !error.empty() && out.bytes.empty());
+  }
+  for (const auto command : {Command::BeeperToggle,Command::TestShort,Command::TestDeep,Command::TestTimed,Command::TestCancel,Command::ShutdownCancel})
+    assert(!driver.encodeCommand(command,{1,3,12},out,error) && !error.empty() && out.bytes.empty());
   assert(driver.encodeCommand(Command::OutputRestart,{10,9999},out,error) && out.bytes=="S10R9999\r");
   assert(driver.encodeCommand(Command::OutputOff,{10,3},out,error) && out.bytes=="S10\r");
   for (const auto cmd : {Command::OutputOff,Command::OutputRestart}) {

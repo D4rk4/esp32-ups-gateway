@@ -54,6 +54,15 @@ void public_and_roles(){
   for(const char* path:{"/api/status","/api/capabilities","/api/alarms","/api/history","/api/history.csv","/api/events","/api/events.csv","/api/time","/api/schedules","/api/notifications","/api/about"}){
     response=fixture::request(HTTP_GET,path,"",viewer.cookie);check(code(response)==200,"viewer can use every read-only management endpoint");
   }
+  response=fixture::request(HTTP_GET,"/api/capabilities","",viewer.cookie);const auto capabilities=payload(response);
+  check(capabilities["commands"].size()==8 && capabilities["driver"]["capabilities"].as<unsigned>()==255,"capabilities include all eight MegaTec commands");
+  bool deep=false,timed=false;for(const auto item:capabilities["commands"].as<JsonArrayConst>()){
+    const auto id=item["id"].as<std::string>();
+    if(id=="test_deep")deep=item["capability"].as<unsigned>()==64&&!item["power"].as<bool>()&&item["supported"].as<bool>();
+    if(id=="test_timed")timed=item["capability"].as<unsigned>()==128&&!item["power"].as<bool>()&&item["supported"].as<bool>();
+  }
+  check(deep&&timed,"deep and timed test capabilities are supported and non-power");
+  response=fixture::request(HTTP_GET,"/api/about","",viewer.cookie);
   const auto about=payload(response);check(!about.containsKey("attribution")&&!about["protocol"].containsKey("compatibility"),"about omits removed attribution and compatibility notices");
   check(about["protocol"].containsKey("commands_acknowledged")&&!about["protocol"]["commands_acknowledged"].as<bool>(),"about retains command acknowledgement state");
   for(const auto* account:{&viewer,&op})for(const char* path:{"/api/config","/api/config/export"}){
@@ -69,6 +78,17 @@ void public_and_roles(){
   check(code(fixture::request(HTTP_POST,"/api/command",command,op.cookie,admin.csrf))==403&&fixture::commands==0,"another session's CSRF cannot submit a command");
   check(code(fixture::request(HTTP_POST,"/api/command",command,op.cookie,op.csrf))==202&&fixture::commands==1,"operator can enqueue permitted UPS command");
   check(code(fixture::request(HTTP_POST,"/api/command","{\"command\":\"output_off\",\"confirm\":\"EXECUTE\"}",op.cookie,op.csrf))==400&&fixture::commands==1,"power operation requires POWER before backend dispatch");
+  check(code(fixture::request(HTTP_POST,"/api/command","{\"command\":\"output_off\",\"confirm\":\"POWER\",\"delay_minutes\":1,\"delay_seconds\":12}",op.cookie,op.csrf))==400&&fixture::commands==1,"shutdown units are mutually exclusive before dispatch");
+  check(code(fixture::request(HTTP_POST,"/api/command","{\"command\":\"output_off\",\"confirm\":\"POWER\",\"delay_seconds\":0}",op.cookie,op.csrf))==400&&fixture::commands==1,"explicit zero seconds cannot become a one-minute shutdown");
+  check(code(fixture::request(HTTP_POST,"/api/command","{\"command\":\"test_short\",\"confirm\":\"EXECUTE\",\"delay_seconds\":0}",op.cookie,op.csrf))==400&&fixture::commands==1,"explicit zero seconds cannot be used on a non-shutdown command");
+  check(code(fixture::request(HTTP_POST,"/api/command","{\"command\":\"output_off\",\"confirm\":\"POWER\",\"delay_seconds\":12}",op.cookie,op.csrf))==202&&fixture::commands==2&&fixture::last_command==ups::Command::OutputOff&&fixture::last_args.delay_seconds==12,"shutdown seconds reach the UPS backend intact");
+  check(code(fixture::request(HTTP_POST,"/api/command","{\"command\":\"test_deep\",\"confirm\":\"EXECUTE\"}",op.cookie,op.csrf))==202&&fixture::commands==3,"deep test uses EXECUTE confirmation");
+  check(code(fixture::request(HTTP_POST,"/api/command","{\"command\":\"test_timed\",\"confirm\":\"POWER\"}",op.cookie,op.csrf))==400&&fixture::commands==3,"timed test rejects power confirmation");
+  check(code(fixture::request(HTTP_POST,"/api/command","{\"command\":\"test_timed\",\"confirm\":\"EXECUTE\",\"delay_minutes\":99}",op.cookie,op.csrf))==202&&fixture::commands==4&&fixture::last_command==ups::Command::TestTimed&&fixture::last_args.delay_minutes==99&&fixture::last_args.delay_seconds==0,"timed test uses EXECUTE confirmation and preserves duration");
+  for(const char* invalid:{"-1","1.5","\"12\"","true","65536","null"}){
+    const auto body=std::string("{\"command\":\"output_off\",\"confirm\":\"POWER\",\"delay_seconds\":")+invalid+"}";
+    check(code(fixture::request(HTTP_POST,"/api/command",body,op.cookie,op.csrf))==400&&fixture::commands==4,"seconds must be a bounded unsigned JSON integer");
+  }
   check(code(fixture::request(HTTP_POST,"/api/config","{\"hostname\":\"changed\"}",admin.cookie,"wrong"))==403&&fixture::writes==0,"invalid admin CSRF never reaches config persistence");
   response=fixture::request(HTTP_GET,"/api/config/export","",admin.cookie);const auto exported=payload(response);
   check(code(response)==200&&exported["web_password"].as<std::string>()=="admin-passphrase-123","administrator export includes the actual saved credential");

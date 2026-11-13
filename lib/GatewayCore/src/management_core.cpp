@@ -20,12 +20,7 @@ bool singleObject(const std::string& text){
   }return finished&&!quoted;
 }
 std::string number(float value){char out[32];std::snprintf(out,sizeof(out),"%.6g",double(value));return out;}
-uint32_t capability(ups::Command c){
-  switch(c){case ups::Command::BeeperToggle:return ups::CapBeeper;case ups::Command::TestShort:return ups::CapTest;
-    case ups::Command::TestCancel:return ups::CapTestCancel;case ups::Command::ShutdownCancel:return ups::CapShutdownCancel;
-    case ups::Command::OutputOff:return ups::CapOutputOff;case ups::Command::OutputRestart:return ups::CapOutputRestart;}
-  return 0;
-}
+uint32_t capability(ups::Command c){const auto* info=ups::findCommand(c);return info?info->capability:0;}
 ScheduleRecord* recordFor(ScheduleJournal& journal,uint32_t id){
   for(auto& r:journal.records)if(r.id==id)return &r;
   if(journal.records.size()>=8)return nullptr;
@@ -41,12 +36,7 @@ void writeRule(JsonObject o,const ScheduleRule& r){
 bool freshSnapshot(const ups::Snapshot& s,uint64_t now,uint32_t stale_ms){
   return s.connected&&s.status_valid&&uint32_t(uint32_t(now)-s.last_success_ms)<stale_ms;
 }
-bool parseScheduledCommand(const std::string& name,ups::Command& out){
-  if(name=="beeper_toggle")out=ups::Command::BeeperToggle;else if(name=="test_short")out=ups::Command::TestShort;
-  else if(name=="test_cancel")out=ups::Command::TestCancel;else if(name=="shutdown_cancel")out=ups::Command::ShutdownCancel;
-  else if(name=="output_off")out=ups::Command::OutputOff;else if(name=="output_restart")out=ups::Command::OutputRestart;else return false;
-  return true;
-}
+bool parseScheduledCommand(const std::string& name,ups::Command& out){const auto* info=ups::findCommand(name);if(!info)return false;out=info->command;return true;}
 bool scheduledCommandReady(const Config& c,const ScheduleRule& r,const ups::UpsDriver* driver,const ups::Snapshot& s,uint64_t now,std::string& reason){
   reason.clear();ups::Command command{};ups::EncodedCommand encoded;
   if(!c.controls_enabled){reason="UPS controls are disabled";return false;}

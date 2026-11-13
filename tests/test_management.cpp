@@ -48,6 +48,16 @@ int main(){
   ScheduleEngine stale(c);stale.begin({},true);stale.tick(t,0,local,driver,fresh(0),save,send);stale.tick(t+59,59000,local,driver,fresh(59000),save,send);stale.tick(t+60,60000,local,driver,fresh(0),save,send);assert(sends==1&&stale.runtime()[0].last_state=="skipped");
   c.schedules[0].command="output_off";c.power_controls_enabled=false;
   std::string reason;assert(!scheduledCommandReady(c,c.schedules[0],driver,fresh(0),0,reason));
+  c.schedules[0].command="test_deep";assert(scheduledCommandReady(c,c.schedules[0],driver,fresh(0),0,reason));
+  c.schedules[0].command="test_timed";c.schedules[0].delay_minutes=99;assert(scheduledCommandReady(c,c.schedules[0],driver,fresh(0),0,reason));
+  for(const uint16_t duration:{uint16_t(1),uint16_t(99)}){
+    c.schedules[0].delay_minutes=duration;int timed_sends=0;ups::Command sent_command=ups::Command::TestShort;ups::CommandArgs sent_args;
+    const ScheduleEngine::Enqueue timed_send=[&](ups::Command command,const ups::CommandArgs& args,uint32_t& id,std::string&){sent_command=command;sent_args=args;id=9;++timed_sends;return true;};
+    ScheduleEngine timed_engine(c);timed_engine.begin({},true);timed_engine.tick(t,0,local,driver,fresh(0),save,timed_send);
+    timed_engine.tick(t+59,59000,local,driver,fresh(59000),save,timed_send);timed_engine.tick(t+60,60000,local,driver,fresh(60000),save,timed_send);
+    assert(timed_sends==1&&sent_command==ups::Command::TestTimed&&sent_args.delay_minutes==duration&&sent_args.restore_minutes==3&&sent_args.delay_seconds==0);
+  }
+  c.schedules[0].delay_minutes=100;assert(!scheduledCommandReady(c,c.schedules[0],driver,fresh(0),0,reason));
   const auto message=rfc3164Message(c,{1,1000,EventType::Startup,3,"a\nb\rc"},"Nov 11 01:02:03");
   assert(message.find("<10>")==0&&message.find('\n')==std::string::npos&&message.find('\r')==std::string::npos&&message.size()<=480);
   // A corrupted journal may never turn into permission to replay a schedule.

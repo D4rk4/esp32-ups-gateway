@@ -234,11 +234,8 @@ esp_err_t WebService::capabilities(httpd_req_t* r){
   const char* labels[]={"UPS status","UPS commands","Alarm status","Event journal","Data history","CSV export","Schedules","NTP / manual clock","UDP syslog","SNMPv2c","SNMP notifications","Configuration backup / import","Login sessions and roles"};
   auto features=document.createNestedArray("features");
   for(size_t i=0;i<13;++i){auto item=features.createNestedObject();item["id"]=names[i];item["label"]=labels[i];item["supported"]=true;item["detail"]=i==1?"Driver capability, fresh status and control opt-ins required":i==4?"240 samples in volatile RAM":i==6?"Saved rules apply after reboot; no overdue catch-up":i==8?"Bounded UDP queue; delivery is not confirmed":"Implemented by UPS Gateway";}
-  const char* command_names[]={"beeper_toggle","test_short","test_cancel","shutdown_cancel","output_off","output_restart"};
-  const char* command_labels[]={"Toggle beeper","Short battery test","Cancel battery test","Cancel shutdown","Turn output off","Restart output"};
-  const uint32_t bits[]={ups::CapBeeper,ups::CapTest,ups::CapTestCancel,ups::CapShutdownCancel,ups::CapOutputOff,ups::CapOutputRestart};
   auto commands=document.createNestedArray("commands");
-  for(size_t i=0;i<6;++i){auto item=commands.createNestedObject();item["id"]=command_names[i];item["label"]=command_labels[i];item["capability"]=bits[i];item["power"]=i>=3;item["supported"]=(mask&bits[i])!=0;}
+  for(const auto& info:ups::kCommands){auto item=commands.createNestedObject();item["id"]=info.name;item["label"]=info.label;item["capability"]=info.capability;item["power"]=info.power;item["supported"]=(mask&info.capability)!=0;}
   unsupported(document.createNestedArray("unsupported_services"));return json(r,document);
 }
 esp_err_t WebService::about(httpd_req_t* r){
@@ -366,22 +363,19 @@ esp_err_t WebService::handle(httpd_req_t* r){
       needs_reboot_=true;return json(r,"{\"ok\":true,\"reboot_required\":true,\"access_preserved\":true}");
     }
     case auth::Endpoint::Command:{
-      if(!onlyKeys(object,{"command","confirm","delay_minutes","restore_minutes"})||!document["command"].is<const char*>()||!document["confirm"].is<const char*>())return error(r,"400 Bad Request","Command and confirmation are required");
-      const std::string name=document["command"].as<std::string>();ups::Command command;bool power=false;
-      if(name=="beeper_toggle")command=ups::Command::BeeperToggle;
-      else if(name=="test_short")command=ups::Command::TestShort;
-      else if(name=="test_cancel")command=ups::Command::TestCancel;
-      else if(name=="shutdown_cancel"){command=ups::Command::ShutdownCancel;power=true;}
-      else if(name=="output_off"){command=ups::Command::OutputOff;power=true;}
-      else if(name=="output_restart"){command=ups::Command::OutputRestart;power=true;}
-      else return error(r,"400 Bad Request","Unknown UPS command");
-      if(document["confirm"].as<std::string>()!=(power?"POWER":"EXECUTE"))return error(r,"400 Bad Request","Command confirmation does not match the operation");
-      if(!active_.controls_enabled||(power&&!active_.power_controls_enabled))return error(r,"403 Forbidden","This category of UPS controls is disabled");
+      if(!onlyKeys(object,{"command","confirm","delay_minutes","delay_seconds","restore_minutes"})||!document["command"].is<const char*>()||!document["confirm"].is<const char*>())return error(r,"400 Bad Request","Command and confirmation are required");
+      const auto* command=ups::findCommand(document["command"].as<std::string>());
+      if(!command)return error(r,"400 Bad Request","Unknown UPS command");
+      if(document["confirm"].as<std::string>()!=(command->power?"POWER":"EXECUTE"))return error(r,"400 Bad Request","Command confirmation does not match the operation");
+      if(!active_.controls_enabled||(command->power&&!active_.power_controls_enabled))return error(r,"403 Forbidden","This category of UPS controls is disabled");
+      if(document.containsKey("delay_minutes")&&document.containsKey("delay_seconds"))return error(r,"400 Bad Request","Choose either minutes or seconds");
       ups::CommandArgs args;
-      for(const char* key:{"delay_minutes","restore_minutes"})if(document.containsKey(key)&&(!document[key].is<uint32_t>()||document[key].as<uint32_t>()>9999))return error(r,"400 Bad Request","Invalid command delay");
+      for(const char* key:{"delay_minutes","delay_seconds","restore_minutes"})if(document.containsKey(key)&&(!document[key].is<uint32_t>()||document[key].as<uint32_t>()>9999))return error(r,"400 Bad Request","Invalid command delay");
+      if(document.containsKey("delay_seconds")&&document["delay_seconds"].as<uint32_t>()==0)return error(r,"400 Bad Request","Seconds delay must be non-zero");
       if(document.containsKey("delay_minutes"))args.delay_minutes=document["delay_minutes"].as<uint16_t>();
+      if(document.containsKey("delay_seconds"))args.delay_seconds=document["delay_seconds"].as<uint16_t>();
       if(document.containsKey("restore_minutes"))args.restore_minutes=document["restore_minutes"].as<uint16_t>();
-      uint32_t id=0;if(!ups_.enqueue(command,args,id,why))return error(r,"409 Conflict",why);
+      uint32_t id=0;if(!ups_.enqueue(command->command,args,id,why))return error(r,"409 Conflict",why);
       DynamicJsonDocument result(256);result["ok"]=true;result["id"]=id;result["state"]="queued";return json(r,result,"202 Accepted");
     }
     default:return error(r,"404 Not Found","Unknown route");

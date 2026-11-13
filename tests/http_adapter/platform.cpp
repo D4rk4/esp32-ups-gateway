@@ -12,6 +12,8 @@ unsigned fail_error_allocations=0;
 unsigned fail_config_allocations=0;
 size_t history_limit=0;
 ups::Snapshot snapshot;
+ups::Command last_command{};
+ups::CommandArgs last_args{};
 std::vector<gateway::Event> events;
 httpd_config_t server_config;
 std::vector<httpd_uri_t> registered;
@@ -64,8 +66,8 @@ bool ConfigStore::resetPassword(std::string& password,std::string& why){why.clea
 UpsService::UpsService(const Config& config,EventBus& events):config_(config),events_(events),driver_(ups::findDriver(config.driver)){}
 ups::Snapshot UpsService::snapshot()const{return fixture::snapshot;}
 ControlStatus UpsService::controlStatus()const{return {};}
-bool UpsService::enqueue(ups::Command,const ups::CommandArgs&,uint32_t& id,std::string& why){
-  ++fixture::commands;
+bool UpsService::enqueue(ups::Command command,const ups::CommandArgs& args,uint32_t& id,std::string& why){
+  ++fixture::commands;fixture::last_command=command;fixture::last_args=args;
   if(!fixture::snapshot.connected||!fixture::snapshot.status_valid||uint32_t(fixture::now-fixture::snapshot.last_success_ms)>=config_.stale_ms){why="Fresh status required by backend";return false;}
   id=fixture::commands;return true;
 }

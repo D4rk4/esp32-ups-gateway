@@ -9,7 +9,7 @@ namespace ups {
 namespace {
 constexpr std::size_t kMaxLine = 160;
 const DriverInfo kInfo{"megatec_q1", "MegaTec Q1",
-    2400, CapBeeper | CapTest | CapTestCancel | CapShutdownCancel | CapOutputOff | CapOutputRestart};
+    2400, CapBeeper | CapTest | CapTestCancel | CapShutdownCancel | CapOutputOff | CapOutputRestart | CapTestDeep | CapTestTimed};
 
 std::vector<std::string> fields(const std::string& line) {
   std::vector<std::string> result;
@@ -96,10 +96,19 @@ bool parseRating(const std::string& line, Snapshot& next) {
 }
 
 bool parseIdentity(const std::string& line, Snapshot& next) {
-  if (line.size() != 38 || line[0] != '#' || line[16] != ' ' || line[27] != ' ') return false;
-  next.manufacturer = trim(line.substr(1,15));
-  next.model = trim(line.substr(17,10));
-  next.firmware = trim(line.substr(28,10));
+  if (line.empty() || (line[0] != '#' && line[0] != '!')) return false;
+  if (line.size() == 33) {
+    if (line[11] != ' ' || line[22] != ' ') return false;
+    next.manufacturer = trim(line.substr(1,10));
+    next.model = trim(line.substr(12,10));
+    next.firmware = trim(line.substr(23,10));
+  } else if (line.size() == 38 || line.size() == 60) {
+    if (line[16] != ' ' || line[27] != ' ' || (line.size() == 60 && line[38] != ' ')) return false;
+    next.manufacturer = trim(line.substr(1,15));
+    next.model = trim(line.substr(17,10));
+    next.firmware = trim(line.substr(28,10));
+    if (line.size() == 60) next.serial = trim(line.substr(39,21));
+  } else return false;
   return true;
 }
 }
@@ -144,9 +153,17 @@ bool MegaTecQ1Driver::encodeCommand(Command command, const CommandArgs& args,
                                   EncodedCommand& out, std::string& error) const {
   out = {};
   error.clear();
-  if ((command == Command::OutputOff || command == Command::OutputRestart)
-      && (args.delay_minutes < 1 || args.delay_minutes > 10)) {
+  const bool shutdown = command == Command::OutputOff || command == Command::OutputRestart;
+  if (args.delay_seconds && (!shutdown || args.delay_seconds < 12 || args.delay_seconds > 54 || args.delay_seconds % 6 != 0)) {
+    error = "Shutdown seconds must be 12..54 in steps of 6 and only apply to output shutdown";
+    return false;
+  }
+  if (shutdown && !args.delay_seconds && (args.delay_minutes < 1 || args.delay_minutes > 10)) {
     error = "Shutdown delay must be 1..10 minutes";
+    return false;
+  }
+  if (command == Command::TestTimed && (args.delay_minutes < 1 || args.delay_minutes > 99)) {
+    error = "Test duration must be 1..99 minutes";
     return false;
   }
   if (command == Command::OutputRestart && (args.restore_minutes < 3 || args.restore_minutes > 9999)) {
@@ -157,14 +174,19 @@ bool MegaTecQ1Driver::encodeCommand(Command command, const CommandArgs& args,
   switch (command) {
     case Command::BeeperToggle: out.bytes = "Q\r"; break;
     case Command::TestShort: out.bytes = "T\r"; break;
+    case Command::TestDeep: out.bytes = "TL\r"; break;
+    case Command::TestTimed:
+      std::snprintf(wire,sizeof(wire),"T%02u\r",static_cast<unsigned>(args.delay_minutes));
+      out.bytes = wire; break;
     case Command::TestCancel: out.bytes = "CT\r"; break;
     case Command::ShutdownCancel: out.bytes = "C\r"; out.changes_output = true; break;
     case Command::OutputOff:
-      std::snprintf(wire,sizeof(wire),"S%02u\r",static_cast<unsigned>(args.delay_minutes));
+      if (args.delay_seconds) std::snprintf(wire,sizeof(wire),"S.%u\r",static_cast<unsigned>(args.delay_seconds/6));
+      else std::snprintf(wire,sizeof(wire),"S%02u\r",static_cast<unsigned>(args.delay_minutes));
       out.bytes = wire; out.changes_output = true; break;
     case Command::OutputRestart:
-      std::snprintf(wire,sizeof(wire),"S%02uR%04u\r",static_cast<unsigned>(args.delay_minutes),
-          static_cast<unsigned>(args.restore_minutes));
+      if (args.delay_seconds) std::snprintf(wire,sizeof(wire),"S.%uR%04u\r",static_cast<unsigned>(args.delay_seconds/6),static_cast<unsigned>(args.restore_minutes));
+      else std::snprintf(wire,sizeof(wire),"S%02uR%04u\r",static_cast<unsigned>(args.delay_minutes),static_cast<unsigned>(args.restore_minutes));
       out.bytes = wire; out.changes_output = true; break;
     default: error = "Unsupported command"; return false;
   }

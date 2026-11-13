@@ -23,9 +23,28 @@ struct Snapshot {
   bool shutdown_active{false}, beeper_on{false};
   std::string raw_status, last_status_line;
 };
-enum class Command { BeeperToggle, TestShort, TestCancel, ShutdownCancel, OutputOff, OutputRestart };
-struct CommandArgs { uint16_t delay_minutes{1}; uint16_t restore_minutes{3}; };
-enum Capability : uint32_t { CapBeeper=1u, CapTest=2u, CapTestCancel=4u, CapShutdownCancel=8u, CapOutputOff=16u, CapOutputRestart=32u };
+enum class Command { BeeperToggle, TestShort, TestCancel, ShutdownCancel, OutputOff, OutputRestart, TestDeep, TestTimed };
+struct CommandArgs { uint16_t delay_minutes{1}; uint16_t restore_minutes{3}; uint16_t delay_seconds{0}; };
+enum Capability : uint32_t { CapBeeper=1u, CapTest=2u, CapTestCancel=4u, CapShutdownCancel=8u, CapOutputOff=16u, CapOutputRestart=32u, CapTestDeep=64u, CapTestTimed=128u };
+struct CommandInfo { Command command; const char* name; const char* label; uint32_t capability; bool power; };
+inline constexpr CommandInfo kCommands[] = {
+  {Command::BeeperToggle,"beeper_toggle","Toggle beeper",CapBeeper,false},
+  {Command::TestShort,"test_short","Short battery test",CapTest,false},
+  {Command::TestCancel,"test_cancel","Cancel battery test",CapTestCancel,false},
+  {Command::ShutdownCancel,"shutdown_cancel","Cancel shutdown",CapShutdownCancel,true},
+  {Command::OutputOff,"output_off","Turn output off",CapOutputOff,true},
+  {Command::OutputRestart,"output_restart","Restart output",CapOutputRestart,true},
+  {Command::TestDeep,"test_deep","Deep battery test",CapTestDeep,false},
+  {Command::TestTimed,"test_timed","Timed battery test",CapTestTimed,false}
+};
+inline const CommandInfo* findCommand(const std::string& name) {
+  for (const auto& info : kCommands) if (name == info.name) return &info;
+  return nullptr;
+}
+inline const CommandInfo* findCommand(Command command) {
+  for (const auto& info : kCommands) if (command == info.command) return &info;
+  return nullptr;
+}
 enum class Parity { None, Even, Odd };
 struct DriverInfo {
   const char* id; const char* label; uint32_t default_baud; uint32_t capabilities;

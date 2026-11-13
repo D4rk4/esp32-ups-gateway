@@ -13,26 +13,8 @@ constexpr uint32_t kResyncMs = 20;
 constexpr std::size_t kDrainLimit = 1024;
 
 const char* commandName(ups::Command command) {
-  switch (command) {
-    case ups::Command::BeeperToggle: return "beeper_toggle";
-    case ups::Command::TestShort: return "test_short";
-    case ups::Command::TestCancel: return "test_cancel";
-    case ups::Command::ShutdownCancel: return "shutdown_cancel";
-    case ups::Command::OutputOff: return "output_off";
-    case ups::Command::OutputRestart: return "output_restart";
-  }
-  return "unknown";
-}
-uint32_t capability(ups::Command command) {
-  switch (command) {
-    case ups::Command::BeeperToggle: return ups::CapBeeper;
-    case ups::Command::TestShort: return ups::CapTest;
-    case ups::Command::TestCancel: return ups::CapTestCancel;
-    case ups::Command::ShutdownCancel: return ups::CapShutdownCancel;
-    case ups::Command::OutputOff: return ups::CapOutputOff;
-    case ups::Command::OutputRestart: return ups::CapOutputRestart;
-  }
-  return 0;
+  const auto* info=ups::findCommand(command);
+  return info?info->name:"unknown";
 }
 uint32_t serialFormat(const ups::DriverInfo& info) {
   if (info.stop_bits == 1) {
@@ -104,8 +86,8 @@ bool UpsService::validateCommandLocked(ups::Command command, const ups::CommandA
                                      uint32_t now, ups::EncodedCommand& encoded,
                                      std::string& error) const {
   if (!config_.controls_enabled) { error="UPS controls are disabled"; return false; }
-  const uint32_t cap=capability(command);
-  if (!driver_ || !cap || !(driver_->info().capabilities & cap)) {
+  const auto* info=ups::findCommand(command);
+  if (!driver_ || !info || !(driver_->info().capabilities & info->capability)) {
     error="Command is not supported by the selected driver"; return false;
   }
   if (!driver_->encodeCommand(command,args,encoded,error) || encoded.bytes.empty()) {
