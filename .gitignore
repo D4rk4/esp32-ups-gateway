@@ -8,3 +8,10 @@ __pycache__/
 
 src/web_assets.hpp
 backups/
+firmware/
+reference/
+work/
+target/
+.metrics/
+.coverage
+.coverage-empty-config
