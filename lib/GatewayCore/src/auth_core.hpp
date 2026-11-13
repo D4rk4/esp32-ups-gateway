@@ -50,12 +50,12 @@ enum class Method { Get, Post };
 enum class Endpoint {
   Root,Session,Login,Logout,Status,Config,ConfigExport,Events,EventsCsv,
   Capabilities,Alarms,History,HistoryCsv,Time,Schedules,Notifications,About,
-  Command,TrapTest,SyslogTest,Reboot,LogsClear,ResetConfig
+  Command,TrapTest,SyslogTest,Reboot,LogsClear,ResetConfig,Firmware
 };
 struct Route {
   Method method;const char* path;Endpoint id;Role minimum;bool csrf;size_t max_body;
 };
-const std::array<Route,25>& routes();
+const std::array<Route,27>& routes();
 const Route* routeFor(Method method,const std::string& path);
 enum class Access { Allowed, Unauthenticated, Forbidden, InvalidCsrf };
 Access authorize(const Route& route,const Session* session,bool csrf_valid);

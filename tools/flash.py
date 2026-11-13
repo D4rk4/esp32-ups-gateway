@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Serial flashing for the single-slot ESP32 gateway; preserves dedicated appcfg unless erase is requested.
+"""Serial flashing for the dual-slot ESP32 gateway; preserves dedicated appcfg unless erase is requested.
 
 Python 3.10+; real serial operations require esptool==4.9.0. Global options go
 before the action. Config backup/restore --file and restore/erase --confirm go after it.
@@ -29,9 +29,19 @@ APP_OFFSET = 0x10000
 APP_SIZE = 0x3F0000
 PARTITION_OFFSET = 0x8000
 PARTITION_SIZE = 0x1000
+OTADATA_OFFSET = 0xE000
+OTADATA_SIZE = 0x2000
 REQUIRED_IMAGES = ("bootloader.bin", "partitions.bin", "firmware.bin")
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 EXPECTED_PARTITIONS = {
+    "nvs": (1, 2, 0x9000, 0x5000, 0),
+    "otadata": (1, 0, OTADATA_OFFSET, OTADATA_SIZE, 0),
+    "ota_0": (0, 16, APP_OFFSET, APP_SIZE, 0),
+    "ota_1": (0, 17, 0x400000, APP_SIZE, 0),
+    "logs": (1, 0x40, 0x7F0000, 0x100000, 0),
+    "appcfg": (1, 2, CONFIG_OFFSET, CONFIG_SIZE, 0),
+}
+LEGACY_PARTITIONS = {
     "nvs": (1, 2, 0x9000, 0x5000, 0),
     "factory": (0, 0, APP_OFFSET, APP_SIZE, 0),
     "appcfg": (1, 2, CONFIG_OFFSET, CONFIG_SIZE, 0),
@@ -43,10 +53,50 @@ class FlashError(ValueError):
     """An operation cannot safely continue."""
 
 
-def validate_partition_table(data: bytes) -> list[tuple]:
-    """Validate ESP-IDF binary entries, optional MD5, ranges and exact layout."""
+def partition_name(raw_name: bytes) -> str:
+    try:
+        name = raw_name.split(b"\0", 1)[0].decode("ascii")
+    except UnicodeDecodeError as error:
+        raise FlashError("Invalid partition label") from error
+    if raw_name != name.encode("ascii").ljust(16, b"\0"):
+        raise FlashError("Invalid partition label padding")
+    return name
+
+
+def validate_partition_overlap(name: str, offset: int, size: int, entries: list[tuple]) -> None:
+    for previous in entries:
+        if offset < previous[3] + previous[4] and previous[3] < offset + size:
+            raise FlashError(f"Overlapping partitions: {previous[0]} and {name}")
+
+
+def validate_partition_range(name: str, kind: int, offset: int, size: int, entries: list[tuple]) -> None:
+    if not size or offset < 0x9000 or offset % 0x1000 or size % 0x1000 or offset + size > FLASH_SIZE:
+        raise FlashError(f"Partition {name} has invalid alignment, size or flash bounds")
+    if kind == 0 and offset % 0x10000:
+        raise FlashError(f"Application partition {name} must be aligned to 0x10000")
+    validate_partition_overlap(name, offset, size, entries)
+
+
+def validate_partition_entry(entry: bytes, entries: list[tuple], found: dict) -> None:
+    magic, kind, subtype, offset, size, raw_name, flags = struct.unpack("<HBBII16sI", entry)
+    if magic != 0x50AA:
+        raise FlashError("Invalid partition entry magic")
+    name = partition_name(raw_name)
+    if not name or name in found:
+        raise FlashError("Missing or duplicate partition label")
+    validate_partition_range(name, kind, offset, size, entries)
+    entries.append((name, kind, subtype, offset, size, flags))
+    found[name] = (kind, subtype, offset, size, flags)
+
+
+def validate_table_size(data: bytes) -> None:
     if not data or len(data) > PARTITION_SIZE or len(data) % 32:
         raise FlashError("Partition table must contain 32-byte entries within 4096 bytes")
+
+
+def validate_partition_table(data: bytes, expected: dict | None = None) -> list[tuple]:
+    """Validate ESP-IDF binary entries, optional MD5, ranges and exact layout."""
+    validate_table_size(data)
     entries = []
     found = {}
     end = len(data)
@@ -60,28 +110,11 @@ def validate_partition_table(data: bytes) -> list[tuple]:
                 raise FlashError("Partition table MD5 mismatch")
             end = position + 32
             break
-        magic, kind, subtype, offset, size, raw_name, flags = struct.unpack("<HBBII16sI", entry)
-        if magic != 0x50AA:
-            raise FlashError("Invalid partition entry magic")
-        try:
-            name = raw_name.split(b"\0", 1)[0].decode("ascii")
-        except UnicodeDecodeError as error:
-            raise FlashError("Invalid partition label") from error
-        if not name or name in found:
-            raise FlashError("Missing or duplicate partition label")
-        if not size or offset < 0x9000 or offset % 0x1000 or size % 0x1000 or offset + size > FLASH_SIZE:
-            raise FlashError(f"Partition {name} has invalid alignment, size or flash bounds")
-        if kind == 0 and offset % 0x10000:
-            raise FlashError(f"Application partition {name} must be aligned to 0x10000")
-        for previous in entries:
-            if offset < previous[3] + previous[4] and previous[3] < offset + size:
-                raise FlashError(f"Overlapping partitions: {previous[0]} and {name}")
-        entries.append((name, kind, subtype, offset, size, flags))
-        found[name] = (kind, subtype, offset, size, flags)
+        validate_partition_entry(entry, entries, found)
     if data[end:] != b"\xff" * (len(data) - end):
         raise FlashError("Unexpected data after partition table terminator/checksum")
-    if found != EXPECTED_PARTITIONS:
-        raise FlashError("Partition layout mismatch: require only nvs, factory 0x10000/0x3f0000, appcfg NVS 0xf00000/0x10000; OTA slots are forbidden")
+    if found != (EXPECTED_PARTITIONS if expected is None else expected):
+        raise FlashError("Partition layout mismatch: expected the exact approved layout")
     return entries
 
 
@@ -91,6 +124,29 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: source.read(65536), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def read_hash_manifest(manifest: Path) -> list[str]:
+    try:
+        return manifest.read_text(encoding="ascii").splitlines()
+    except UnicodeDecodeError as error:
+        raise FlashError("SHA256SUMS.txt must be ASCII") from error
+
+
+def validate_image_hashes(directory: Path, manifest: Path) -> None:
+    hashes = {}
+    for line in read_hash_manifest(manifest):
+        if not line.strip():
+            continue
+        match = re.fullmatch(r"([0-9a-fA-F]{64})[ \t]+\*?([^\s]+)", line)
+        if not match or match[2] not in REQUIRED_IMAGES or match[2] in hashes:
+            raise FlashError("SHA256SUMS.txt requires exactly one entry for each of bootloader.bin, partitions.bin, firmware.bin")
+        hashes[match[2]] = match[1].lower()
+    if set(hashes) != set(REQUIRED_IMAGES):
+        raise FlashError("SHA256SUMS.txt is missing a required image entry")
+    for name, expected in hashes.items():
+        if sha256_file(directory / name) != expected:
+            raise FlashError(f"SHA-256 mismatch: {name}")
 
 
 def validate_images(directory: Path) -> None:
@@ -110,23 +166,7 @@ def validate_images(directory: Path) -> None:
     validate_partition_table(table.read_bytes())
     manifest = directory / "SHA256SUMS.txt"
     if manifest.exists():
-        hashes = {}
-        try:
-            lines = manifest.read_text(encoding="ascii").splitlines()
-        except UnicodeDecodeError as error:
-            raise FlashError("SHA256SUMS.txt must be ASCII") from error
-        for line in lines:
-            if not line.strip():
-                continue
-            match = re.fullmatch(r"([0-9a-fA-F]{64})[ \t]+\*?([^\s]+)", line)
-            if not match or match[2] not in REQUIRED_IMAGES or match[2] in hashes:
-                raise FlashError("SHA256SUMS.txt requires exactly one entry for each of bootloader.bin, partitions.bin, firmware.bin")
-            hashes[match[2]] = match[1].lower()
-        if set(hashes) != set(REQUIRED_IMAGES):
-            raise FlashError("SHA256SUMS.txt is missing a required image entry")
-        for name, expected in hashes.items():
-            if sha256_file(directory / name) != expected:
-                raise FlashError(f"SHA-256 mismatch: {name}")
+        validate_image_hashes(directory, manifest)
 
 
 def require_esptool() -> None:
@@ -208,89 +248,139 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--backup-dir", type=Path, default=PROJECT_DIR / "backups", help="Automatic pre-flash backups; contains passwords and SNMP communities")
     parser.add_argument("--dry-run", action="store_true", help="Validate local inputs and print the plan; no serial calls, output files or esptool installation required")
     actions = parser.add_subparsers(dest="action", required=True)
-    actions.add_parser("install", help="Write bootloader, partition table and application; preserve appcfg")
-    actions.add_parser("update", help="Validate device layout and write application at 0x10000 only; preserve appcfg")
+    actions.add_parser("install", help="Install or recover bootloader, OTA table and application; preserve appcfg and logs")
+    actions.add_parser("migrate", help="Migrate the exact legacy factory layout to OTA; preserve appcfg and logs")
+    actions.add_parser("update", help="Update an existing OTA layout at 0x10000 and reset OTA selection; preserve appcfg and logs")
     backup = actions.add_parser("backup-config", help="Read only appcfg into a new 65536-byte private backup file")
     backup.add_argument("--file", type=Path, required=True, help="New backup filename; existing files are never overwritten; contains secrets")
     restore = actions.add_parser("restore-config", help="DESTRUCTIVE: replace only appcfg with an exact 65536-byte backup")
     restore.add_argument("--file", type=Path, required=True, help="65536-byte raw appcfg backup containing credentials")
     restore.add_argument("--confirm", default="", help="Required exact confirmation: RESTORE_CONFIG")
-    erase = actions.add_parser("erase", help="DESTRUCTIVE: erase the entire flash including firmware, nvs and appcfg; run install afterwards")
-    erase.add_argument("--confirm", default="", help="Required exact confirmation: ERASE_FLASH")
+    erase = actions.add_parser("erase", help="DESTRUCTIVE: erase entire flash, including both app slots, otadata, logs, nvs and appcfg; run install afterwards")
+    erase.add_argument("--confirm", default="", help="Required exact confirmation: ERASE_FLASH (wipes both app slots, otadata, logs, nvs and appcfg)")
     return parser
 
 
-def main(argv: list[str] | None = None, runner: Runner | None = None) -> int:
-    parser = build_parser()
-    arguments = parser.parse_args(argv)
-    if not arguments.dry_run and not arguments.port:
-        parser.error("--port is required for every real device operation")
-    if arguments.baud <= 0:
-        parser.error("--baud must be positive")
+def validate_restore(arguments: argparse.Namespace) -> None:
+    if arguments.confirm != "RESTORE_CONFIG":
+        raise FlashError("restore-config replaces appcfg and requires --confirm RESTORE_CONFIG")
+    if not arguments.file.is_file() or arguments.file.stat().st_size != CONFIG_SIZE:
+        raise FlashError("restore-config requires an existing backup of exactly 65536 bytes")
+
+
+def validate_action(arguments: argparse.Namespace) -> None:
     action = arguments.action
-    if action in ("install", "update"):
+    if action in ("install", "update", "migrate"):
         validate_images(arguments.image_dir)
         print("CHECK local image headers, bounds, partition layout and optional SHA256SUMS.txt passed")
     elif action == "backup-config":
         if arguments.file.exists():
             raise FlashError(f"Refusing to overwrite existing backup: {arguments.file}")
     elif action == "restore-config":
-        if arguments.confirm != "RESTORE_CONFIG":
-            raise FlashError("restore-config replaces appcfg and requires --confirm RESTORE_CONFIG")
-        if not arguments.file.is_file() or arguments.file.stat().st_size != CONFIG_SIZE:
-            raise FlashError("restore-config requires an existing backup of exactly 65536 bytes")
+        validate_restore(arguments)
     elif action == "erase":
         if arguments.confirm != "ERASE_FLASH":
-            raise FlashError("erase wipes the entire flash including appcfg and requires --confirm ERASE_FLASH")
+            raise FlashError("erase wipes the entire flash including both app slots, otadata, logs, nvs and appcfg and requires --confirm ERASE_FLASH")
+
+
+def config_operation(arguments: argparse.Namespace, transport: Transport, temporary: Path) -> None:
+    if arguments.action == "backup-config":
+        digest = transport.read(CONFIG_OFFSET, CONFIG_SIZE, arguments.file)
+        print(f"{'Planned' if arguments.dry_run else 'Saved'} private config backup: {arguments.file} (contains secrets)" + (f"; SHA-256 {digest}" if digest else ""))
+        return
+    print("RESTORE replaces appcfg only; the supplied file contains credentials")
+    transport.write([(CONFIG_OFFSET, arguments.file)])
+    observed = transport.read(CONFIG_OFFSET, CONFIG_SIZE, temporary / "restored-appcfg.bin")
+    if not arguments.dry_run and observed != sha256_file(arguments.file):
+        raise FlashError("appcfg restore readback SHA-256 mismatch")
+    print("CHECK planned restore readback comparison" if arguments.dry_run else "Verified restored appcfg SHA-256")
+
+
+def erase_operation(arguments: argparse.Namespace, transport: Transport, temporary: Path) -> None:
+    print("ERASE wipes the entire flash: both app slots, otadata, logs, nvs and appcfg; no backup is taken")
+    transport.execute("erase_flash")
+    erased = temporary / "erased-appcfg.bin"
+    transport.read(CONFIG_OFFSET, CONFIG_SIZE, erased)
+    if not arguments.dry_run and erased.read_bytes() != b"\xff" * CONFIG_SIZE:
+        raise FlashError("appcfg is not blank after erase")
+    print("CHECK planned blank appcfg readback" if arguments.dry_run else "Verified appcfg is blank; run install to flash firmware again")
+
+
+def validate_device_layout(action: str, transport: Transport, temporary: Path) -> None:
+    table_path = temporary / "device-partitions.bin"
+    transport.read(PARTITION_OFFSET, PARTITION_SIZE, table_path)
+    if transport.dry_run:
+        print(f"CHECK device partition table must match the exact {'OTA' if action == 'update' else 'legacy factory'} layout before write")
+        return
+    table = table_path.read_bytes()
+    expected = EXPECTED_PARTITIONS if action == "update" else LEGACY_PARTITIONS
+    try:
+        validate_partition_table(table, expected)
+    except FlashError as error:
+        other = LEGACY_PARTITIONS if action == "update" else EXPECTED_PARTITIONS
+        try:
+            validate_partition_table(table, other)
+        except FlashError:
+            raise error
+        hint = "migrate" if action == "update" else "update"
+        raise FlashError(f"Device has the {'legacy factory' if action == 'update' else 'OTA'} layout; use {hint}") from error
+
+
+def firmware_operation(arguments: argparse.Namespace, transport: Transport, temporary: Path) -> None:
+    action = arguments.action
+    if action in ("update", "migrate"):
+        validate_device_layout(action, transport, temporary)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    backup_path = arguments.backup_dir / f"appcfg-{stamp}.bin"
+    before = transport.read(CONFIG_OFFSET, CONFIG_SIZE, backup_path)
+    print(f"{'Planned private' if arguments.dry_run else 'Private'} pre-flash backup: {backup_path} (contains passwords and SNMP communities)")
+    pairs = [(APP_OFFSET, arguments.image_dir / "firmware.bin")]
+    if action in ("install", "migrate"):
+        pairs.insert(0, (0x1000, arguments.image_dir / "bootloader.bin"))
+    if action == "install":
+        pairs.insert(1, (PARTITION_OFFSET, arguments.image_dir / "partitions.bin"))
+    transport.write(pairs)
+    # A blank OTA selector causes the bootloader to choose ota_0. Do this
+    # only after esptool has successfully written and verified firmware.
+    transport.execute("erase_region", hex(OTADATA_OFFSET), hex(OTADATA_SIZE))
+    if action == "migrate":
+        # Publish the new table last so an interrupted migration can be retried.
+        transport.write([(PARTITION_OFFSET, arguments.image_dir / "partitions.bin")])
+    after = transport.read(CONFIG_OFFSET, CONFIG_SIZE, temporary / "appcfg-after.bin")
+    if not arguments.dry_run and before != after:
+        raise FlashError(f"appcfg CHANGED after {action}; original backup retained at {backup_path}; no automatic restore was attempted")
+    print("CHECK planned before/after appcfg SHA-256 comparison" if arguments.dry_run else f"Verified appcfg unchanged; SHA-256 {after}")
+
+
+def parse_arguments(argv: list[str] | None) -> argparse.Namespace:
+    parser = build_parser()
+    arguments = parser.parse_args(argv)
+    if not arguments.dry_run and not arguments.port:
+        parser.error("--port is required for every real device operation")
+    if arguments.baud <= 0:
+        parser.error("--baud must be positive")
+    validate_action(arguments)
+    return arguments
+
+
+def main(argv: list[str] | None = None, runner: Runner | None = None) -> int:
+    arguments = parse_arguments(argv)
+    action = arguments.action
     if not arguments.dry_run and runner is None:
         require_esptool()
     transport = Transport(arguments.port or "<PORT>", arguments.baud, arguments.dry_run, runner or subprocess_runner)
     transport.verify_capacity()
     with ExitStack() as stack:
         temporary = Path("<temporary>") if arguments.dry_run else Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="ups-flash-")))
-        if action == "backup-config":
-            digest = transport.read(CONFIG_OFFSET, CONFIG_SIZE, arguments.file)
-            print(f"{'Planned' if arguments.dry_run else 'Saved'} private config backup: {arguments.file} (contains secrets)" + (f"; SHA-256 {digest}" if digest else ""))
-            transport.finish()
-            return 0
-        if action == "restore-config":
-            print("RESTORE replaces appcfg only; the supplied file contains credentials")
-            transport.write([(CONFIG_OFFSET, arguments.file)])
-            observed = transport.read(CONFIG_OFFSET, CONFIG_SIZE, temporary / "restored-appcfg.bin")
-            if not arguments.dry_run and observed != sha256_file(arguments.file):
-                raise FlashError("appcfg restore readback SHA-256 mismatch")
-            print("CHECK planned restore readback comparison" if arguments.dry_run else "Verified restored appcfg SHA-256")
+        if action in ("backup-config", "restore-config"):
+            config_operation(arguments, transport, temporary)
             transport.finish()
             return 0
         if action == "erase":
-            print("ERASE wipes the entire flash: firmware, nvs and appcfg; no backup is taken")
-            transport.execute("erase_flash")
-            erased = temporary / "erased-appcfg.bin"
-            transport.read(CONFIG_OFFSET, CONFIG_SIZE, erased)
-            if not arguments.dry_run and erased.read_bytes() != b"\xff" * CONFIG_SIZE:
-                raise FlashError("appcfg is not blank after erase")
-            print("CHECK planned blank appcfg readback" if arguments.dry_run else "Verified appcfg is blank; run install to flash firmware again")
+            erase_operation(arguments, transport, temporary)
             transport.finish()
             return 0
-        if action == "update":
-            table_path = temporary / "device-partitions.bin"
-            transport.read(PARTITION_OFFSET, PARTITION_SIZE, table_path)
-            if arguments.dry_run:
-                print("CHECK device partition table must match the fixed single-factory layout before write")
-            else:
-                validate_partition_table(table_path.read_bytes())
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-        backup_path = arguments.backup_dir / f"appcfg-{stamp}.bin"
-        before = transport.read(CONFIG_OFFSET, CONFIG_SIZE, backup_path)
-        print(f"{'Planned private' if arguments.dry_run else 'Private'} pre-flash backup: {backup_path} (contains passwords and SNMP communities)")
-        pairs = [(APP_OFFSET, arguments.image_dir / "firmware.bin")]
-        if action == "install":
-            pairs = [(0x1000, arguments.image_dir / "bootloader.bin"), (PARTITION_OFFSET, arguments.image_dir / "partitions.bin")] + pairs
-        transport.write(pairs)
-        after = transport.read(CONFIG_OFFSET, CONFIG_SIZE, temporary / "appcfg-after.bin")
-        if not arguments.dry_run and before != after:
-            raise FlashError(f"appcfg CHANGED after {action}; original backup retained at {backup_path}; no automatic restore was attempted")
-        print("CHECK planned before/after appcfg SHA-256 comparison" if arguments.dry_run else f"Verified appcfg unchanged; SHA-256 {after}")
+        firmware_operation(arguments, transport, temporary)
         transport.finish()
     return 0
 

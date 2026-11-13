@@ -19,7 +19,7 @@ environment=os.environ.copy()
 environment['TMPDIR']=str(temporary)
 if args.sanitize:environment.setdefault('ASAN_OPTIONS','detect_leaks=0')
 includes=[ROOT/'tests/http_adapter/stubs',ROOT/'src',ROOT/'lib/GatewayCore/src',ROOT/'lib/UpsCore/src',ROOT/'lib/SnmpCore/src',ROOT/'.pio/libdeps/esp32-poe-16mb/ArduinoJson/src']
-sources=[args.web_source,ROOT/'tests/http_adapter/platform.cpp',ROOT/'tests/http_adapter/test_http.cpp']
+sources=[args.web_source,ROOT/'src/firmware_update.cpp',ROOT/'tests/http_adapter/platform.cpp',ROOT/'tests/http_adapter/test_http.cpp']
 sources+=[ROOT/'lib/GatewayCore/src'/name for name in ['auth_core.cpp','config_json.cpp','config_model.cpp','events.cpp','management_core.cpp']]
 sources+=sorted((ROOT/'lib/UpsCore/src').glob('*.cpp'))
 flags=['-std=c++17','-Wall','-Wextra','-Wpedantic','-Werror','-O1','-g','-DFIRMWARE_VERSION="0.2.0"','-DUPS_UART_TX=4','-DUPS_UART_RX=36']

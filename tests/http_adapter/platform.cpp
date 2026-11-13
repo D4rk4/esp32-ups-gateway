@@ -1,6 +1,8 @@
 #include "harness.hpp"
 #include "config_json.hpp"
 #include "driver_registry.hpp"
+#include <esp_ota_ops.h>
+#include <esp_image_format.h>
 #include <algorithm>
 #include <cstring>
 
@@ -8,6 +10,14 @@ namespace fixture {
 gateway::Config initial;
 uint64_t now=1000,clock_step=0,manual_utc=0;
 unsigned writes=0,commands=0,cleared_history=0,syslog_tests=0,restarts=0;
+gateway::ControlStatus control;
+unsigned ota_begins=0,ota_writes=0,ota_ends=0,ota_aborts=0,ota_switches=0,ota_mark_valid=0,ota_mark_invalid=0;
+int ota_running_state=ESP_OTA_IMG_VALID;
+bool ota_running_second=false;
+bool ota_state_available=true,ota_mark_valid_fails=false;
+bool ota_available=true,ota_fail_begin=false,ota_fail_write=false,ota_fail_end=false,ota_fail_switch=false,ota_fail_verify=false;
+size_t ota_limit=0x3f0000,ota_max_chunk=0,ota_verified_length=static_cast<size_t>(-1);
+std::string ota_written;
 unsigned fail_error_allocations=0;
 unsigned fail_config_allocations=0;
 size_t history_limit=0;
@@ -29,7 +39,36 @@ httpd_req_t request(httpd_method_t method,const std::string& target,const std::s
   }
   request.status="404 Not Found";request.uri=nullptr;return request;
 }
+httpd_req_t firmwareRequest(const std::string& body,const std::string& cookie,const std::string& csrf,const std::string& type,const std::string& confirm,size_t declared_length){
+  const std::string target="/api/firmware";httpd_req_t request;request.uri=target.c_str();request.method=HTTP_POST;request.body=body;
+  request.content_len=declared_length==static_cast<size_t>(-1)?body.size():declared_length;
+  if(!type.empty())request.headers["Content-Type"]=type;
+  if(!confirm.empty())request.headers["X-Firmware-Confirm"]=confirm;
+  if(!cookie.empty())request.headers["Cookie"]=cookie;
+  if(!csrf.empty())request.headers["X-CSRF-Token"]=csrf;
+  for(const auto& route:registered)if(route.method==HTTP_POST&&server_config.uri_match_fn(route.uri,target.c_str(),target.size())){
+    request.user_ctx=route.user_ctx;route.handler(&request);request.uri=nullptr;return request;
+  }
+  request.status="404 Not Found";request.uri=nullptr;return request;
 }
+}
+namespace {
+esp_partition_t slot0{ESP_PARTITION_TYPE_APP,ESP_PARTITION_SUBTYPE_APP_OTA_0,0x10000,0x3f0000,"ota_0"};
+esp_partition_t slot1{ESP_PARTITION_TYPE_APP,ESP_PARTITION_SUBTYPE_APP_OTA_1,0x400000,0x3f0000,"ota_1"};
+const esp_partition_t ota_data{ESP_PARTITION_TYPE_DATA,ESP_PARTITION_SUBTYPE_DATA_OTA,0xe000,0x2000,"otadata"};
+}
+const esp_partition_t* esp_ota_get_running_partition(){return fixture::ota_running_second?&slot1:&slot0;}
+const esp_partition_t* esp_ota_get_next_update_partition(const esp_partition_t*){auto* target=fixture::ota_running_second?&slot0:&slot1;target->size=fixture::ota_limit;return fixture::ota_available?target:nullptr;}
+const esp_partition_t* esp_partition_find_first(esp_partition_type_t type,esp_partition_subtype_t subtype,const char*){return fixture::ota_available&&type==ota_data.type&&subtype==ota_data.subtype?&ota_data:nullptr;}
+esp_err_t esp_ota_begin(const esp_partition_t*,size_t,esp_ota_handle_t* handle){++fixture::ota_begins;fixture::ota_written.clear();*handle=1;return fixture::ota_fail_begin?ESP_FAIL:ESP_OK;}
+esp_err_t esp_ota_write(esp_ota_handle_t,const void* data,size_t size){++fixture::ota_writes;fixture::ota_max_chunk=std::max(fixture::ota_max_chunk,size);if(fixture::ota_fail_write)return ESP_FAIL;fixture::ota_written.append(static_cast<const char*>(data),size);return ESP_OK;}
+esp_err_t esp_ota_end(esp_ota_handle_t){++fixture::ota_ends;return fixture::ota_fail_end?ESP_FAIL:ESP_OK;}
+esp_err_t esp_ota_abort(esp_ota_handle_t){++fixture::ota_aborts;return ESP_OK;}
+esp_err_t esp_ota_set_boot_partition(const esp_partition_t*){++fixture::ota_switches;return fixture::ota_fail_switch?ESP_FAIL:ESP_OK;}
+esp_err_t esp_ota_get_state_partition(const esp_partition_t*,esp_ota_img_states_t* state){*state=static_cast<esp_ota_img_states_t>(fixture::ota_running_state);return fixture::ota_state_available?ESP_OK:ESP_FAIL;}
+esp_err_t esp_ota_mark_app_valid_cancel_rollback(){++fixture::ota_mark_valid;return fixture::ota_mark_valid_fails?ESP_FAIL:ESP_OK;}
+esp_err_t esp_ota_mark_app_invalid_rollback_and_reboot(){++fixture::ota_mark_invalid;return ESP_OK;}
+esp_err_t esp_image_verify(esp_image_load_mode_t,const esp_partition_pos_t*,esp_image_metadata_t* metadata){metadata->image_len=fixture::ota_verified_length==static_cast<size_t>(-1)?fixture::ota_written.size():fixture::ota_verified_length;return fixture::ota_fail_verify?ESP_FAIL:ESP_OK;}
 void* fixture::jsonAllocate(size_t size){
   if(size==768&&fail_error_allocations){--fail_error_allocations;return nullptr;}
   if(size==gateway::kConfigDocumentCapacity&&fail_config_allocations){--fail_config_allocations;return nullptr;}
@@ -65,7 +104,7 @@ bool ConfigStore::resetDefaults(bool keep,std::string& why){why.clear();saved_=d
 bool ConfigStore::resetPassword(std::string& password,std::string& why){why.clear();saved_.web_password="new-local-passphrase-123";password=saved_.web_password;++fixture::writes;return true;}
 UpsService::UpsService(const Config& config,EventBus& events):config_(config),events_(events),driver_(ups::findDriver(config.driver)){}
 ups::Snapshot UpsService::snapshot()const{return fixture::snapshot;}
-ControlStatus UpsService::controlStatus()const{return {};}
+ControlStatus UpsService::controlStatus()const{return fixture::control;}
 bool UpsService::enqueue(ups::Command command,const ups::CommandArgs& args,uint32_t& id,std::string& why){
   ++fixture::commands;fixture::last_command=command;fixture::last_args=args;
   if(!fixture::snapshot.connected||!fixture::snapshot.status_valid||uint32_t(fixture::now-fixture::snapshot.last_success_ms)>=config_.stale_ms){why="Fresh status required by backend";return false;}

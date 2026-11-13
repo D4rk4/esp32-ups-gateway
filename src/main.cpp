@@ -2,6 +2,7 @@
 #include <ETH.h>
 #include <WiFi.h>
 #include <esp_system.h>
+#include <esp_ota_ops.h>
 #include <memory>
 #include "config_store.hpp"
 #include "ups_service.hpp"
@@ -9,6 +10,7 @@
 #include "web_service.hpp"
 #include "event_bus.hpp"
 #include "management_service.hpp"
+#include "firmware_update.hpp"
 
 namespace {
 gateway::ConfigStore configStore;
@@ -18,7 +20,7 @@ std::unique_ptr<gateway::UpsService> upsService;
 std::unique_ptr<gateway::SnmpService> snmpService;
 std::unique_ptr<gateway::ManagementService> managementService;
 std::unique_ptr<gateway::WebService> webService;
-bool running=false;
+bool running=false,configReady=false;
 String consoleLine;
 bool consoleOverflow=false;
 
@@ -48,8 +50,12 @@ void consoleCommand(const String& command){
 void setup(){
   Serial.begin(115200);delay(200);
   Serial.printf("\nESP32 UPS Gateway %s / ESP32-POE WROOM 16MB + MOD-RS232\n",FIRMWARE_VERSION);
+  const auto* runningPartition=esp_ota_get_running_partition();esp_ota_img_states_t imageState;
+  if(runningPartition&&esp_ota_get_state_partition(runningPartition,&imageState)==ESP_OK)
+    Serial.printf("Running partition: %s; OTA image state: %lu\n",runningPartition->label,static_cast<unsigned long>(imageState));
+  else Serial.printf("Running partition: %s; OTA image state: unavailable\n",runningPartition?runningPartition->label:"unknown");
   if(ESP.getFlashChipSize()<16u*1024u*1024u){fatal("This image needs physical 16MB flash; check the board before writing appcfg.");return;}
-  const bool valid=configStore.begin();activeConfig=configStore.saved();
+  const bool valid=configStore.begin();configReady=valid;activeConfig=configStore.saved();
   if(!valid){Serial.print("Configuration is read-only: ");Serial.println(configStore.error().c_str());}
   if(configStore.generatedCredentials()){
     Serial.println(valid?"FIRST BOOT CREDENTIALS — keep privately":"TEMPORARY RAM CREDENTIALS — existing config was NOT erased");
@@ -78,6 +84,7 @@ void setup(){
 }
 
 void loop(){
+  gateway::checkFirmwareProbation(gateway::uptimeMs(),running&&configReady,running&&ETH.linkUp(),running&&static_cast<uint32_t>(ETH.localIP())!=0);
   if(!running){delay(100);return;}
   webService->tick();
   managementService->tick();

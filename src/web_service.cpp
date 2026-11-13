@@ -5,6 +5,8 @@
 #include <Arduino.h>
 #include <ETH.h>
 #include <esp_system.h>
+#include <esp_ota_ops.h>
+#include <esp_image_format.h>
 #include <lwip/sockets.h>
 #include <lwip/inet.h>
 #include <algorithm>
@@ -19,6 +21,30 @@ class Lock {
  public:explicit Lock(SemaphoreHandle_t mutex):mutex_(mutex){xSemaphoreTake(mutex_,portMAX_DELAY);}~Lock(){xSemaphoreGive(mutex_);}
  private:SemaphoreHandle_t mutex_;
 };
+const esp_partition_t* firmwarePartition(){
+  const auto* running=esp_ota_get_running_partition();
+  const auto* next=esp_ota_get_next_update_partition(nullptr);
+  const auto* data=esp_partition_find_first(ESP_PARTITION_TYPE_DATA,ESP_PARTITION_SUBTYPE_DATA_OTA,nullptr);
+  if(!running||!next||!data||running->type!=ESP_PARTITION_TYPE_APP||next->type!=ESP_PARTITION_TYPE_APP||
+     running->subtype<ESP_PARTITION_SUBTYPE_APP_OTA_0||running->subtype>ESP_PARTITION_SUBTYPE_APP_OTA_1||
+     next->subtype<ESP_PARTITION_SUBTYPE_APP_OTA_0||next->subtype>ESP_PARTITION_SUBTYPE_APP_OTA_1||
+     running->address==next->address||next->size==0)return nullptr;
+  return next;
+}
+const char* firmwareUnavailableReason(const esp_partition_t* partition){
+  if(!partition)return "OTA slots are unavailable; migrate by USB.";
+  const auto* running=esp_ota_get_running_partition();esp_ota_img_states_t state;
+  if(!running||esp_ota_get_state_partition(running,&state)!=ESP_OK||state==ESP_OTA_IMG_UNDEFINED)return "No confirmed rollback record is available; migrate by USB.";
+  if(state!=ESP_OTA_IMG_VALID)return "Running firmware is not confirmed yet.";
+  return "";
+}
+bool firmwareHeaderValid(const uint8_t* bytes,size_t size){
+  constexpr size_t header_size=24,segment_size=8,app_desc_size=256;
+  if(size<header_size+segment_size+app_desc_size||bytes[0]!=0xe9||bytes[1]==0||bytes[1]>16||bytes[12]!=0||bytes[13]!=0)return false;
+  const uint32_t first_segment=uint32_t(bytes[28])|(uint32_t(bytes[29])<<8)|(uint32_t(bytes[30])<<16)|(uint32_t(bytes[31])<<24);
+  return first_segment>=app_desc_size&&first_segment<=size-header_size-segment_size&&
+         bytes[32]==0x32&&bytes[33]==0x54&&bytes[34]==0xcd&&bytes[35]==0xab;
+}
 uint64_t sessionClock(void*){return uptimeMs();}
 bool sessionToken(void*,std::string& token){
   uint8_t random[32];esp_fill_random(random,sizeof(random));static constexpr char hex[]="0123456789abcdef";
@@ -101,7 +127,10 @@ bool WebService::matchUri(const char* registered,const char* uri,size_t length){
   auth::RequestTarget target;std::string why;
   return auth::parseTarget(std::string(uri,length),target,why)&&target.path==registered;
 }
-void WebService::tick(){const uint64_t when=reboot_at_.load();if(when&&uptimeMs()>=when)ESP.restart();}
+void WebService::tick(){
+  const uint64_t when=reboot_at_.load(),now=uptimeMs();
+  if(when&&now>=when&&(ups_.controlStatus().last_state!="queued"||now-when>=10000))ESP.restart();
+}
 bool WebService::resetPasswordLocal(std::string& password,std::string& why){
   bool ok=false;{Lock lock(config_mutex_);ok=store_.resetPassword(password,why);}
   if(ok){needs_reboot_=true;Lock lock(auth_mutex_);sessions_.invalidateAll();}return ok;
@@ -152,6 +181,51 @@ esp_err_t WebService::error(httpd_req_t* r,const char* response_status,const std
   // Some denials happen before receiving a body. Closing prevents unread bytes
   // from being interpreted as the next request on this socket.
   return ESP_FAIL;
+}
+esp_err_t WebService::firmwareInfo(httpd_req_t* r){
+  const auto* partition=firmwarePartition();const char* reason=firmwareUnavailableReason(partition);
+  StaticJsonDocument<256> document;document["available"]=!*reason;document["max_image_bytes"]=partition?partition->size:0;document["version"]=FIRMWARE_VERSION;document["reason"]=reason;
+  return json(r,document);
+}
+esp_err_t WebService::firmwareUpload(httpd_req_t* r){
+  if(reboot_at_.load())return error(r,"409 Conflict","A reboot is already scheduled");
+  if(ups_.controlStatus().last_state=="queued")return error(r,"409 Conflict","Wait until the pending UPS command has been transmitted");
+  const auto* partition=firmwarePartition();const char* reason=firmwareUnavailableReason(partition);
+  if(*reason)return error(r,"409 Conflict",reason);
+  if(!r->content_len||r->content_len>partition->size)return error(r,"413 Payload Too Large","Firmware image is empty or exceeds the update partition");
+  std::string value;
+  if(!header(r,"X-Firmware-Confirm",value,16)||value!="UPDATE")return error(r,"400 Bad Request","UPDATE confirmation is required");
+  if(!header(r,"Content-Type",value,96))return error(r,"415 Unsupported Media Type","Content-Type: application/octet-stream is required");
+  const auto separator=value.find(';');if(separator!=std::string::npos)value.resize(separator);
+  while(!value.empty()&&(value.back()==' '||value.back()=='\t'))value.pop_back();
+  for(char& ch:value)if(ch>='A'&&ch<='Z')ch=char(ch-'A'+'a');
+  if(value!="application/octet-stream")return error(r,"415 Unsupported Media Type","Content-Type: application/octet-stream is required");
+  constexpr size_t prefix_size=24+8+256;
+  if(r->content_len<prefix_size)return error(r,"400 Bad Request","Firmware image header is incomplete");
+  uint8_t buffer[4096];size_t received=0;
+  while(received<prefix_size){
+    const int count=httpd_req_recv(r,reinterpret_cast<char*>(buffer+received),prefix_size-received);
+    if(count<=0)return error(r,"408 Request Timeout","Could not read the complete firmware image");
+    received+=size_t(count);
+  }
+  if(!firmwareHeaderValid(buffer,r->content_len))return error(r,"400 Bad Request","Invalid ESP32 application image header");
+  esp_ota_handle_t update;
+  if(esp_ota_begin(partition,r->content_len,&update)!=ESP_OK)return error(r,"500 Internal Server Error","Could not begin firmware update");
+  if(esp_ota_write(update,buffer,received)!=ESP_OK){esp_ota_abort(update);return error(r,"500 Internal Server Error","Could not write firmware image");}
+  while(received<r->content_len){
+    const size_t wanted=std::min(sizeof(buffer),r->content_len-received);
+    const int count=httpd_req_recv(r,reinterpret_cast<char*>(buffer),wanted);
+    if(count<=0){esp_ota_abort(update);return error(r,"408 Request Timeout","Could not read the complete firmware image");}
+    if(esp_ota_write(update,buffer,size_t(count))!=ESP_OK){esp_ota_abort(update);return error(r,"500 Internal Server Error","Could not write firmware image");}
+    received+=size_t(count);
+  }
+  if(esp_ota_end(update)!=ESP_OK)return error(r,"400 Bad Request","Firmware image integrity validation failed");
+  esp_partition_pos_t position{};position.offset=partition->address;position.size=partition->size;
+  esp_image_metadata_t metadata{};
+  if(esp_image_verify(ESP_IMAGE_VERIFY_SILENT,&position,&metadata)!=ESP_OK||metadata.image_len!=r->content_len)return error(r,"400 Bad Request","Firmware image size or integrity validation failed");
+  if(esp_ota_set_boot_partition(partition)!=ESP_OK)return error(r,"500 Internal Server Error","Could not select firmware boot partition");
+  reboot_at_=uptimeMs()+1500;
+  return json(r,"{\"ok\":true,\"rebooting\":true}");
 }
 esp_err_t WebService::dispatch(httpd_req_t* r){return static_cast<WebService*>(r->user_ctx)->handle(r);}
 
@@ -245,7 +319,8 @@ esp_err_t WebService::about(httpd_req_t* r){
   hardware["cpu_mhz"]=ESP.getCpuFreqMHz();hardware["flash_bytes"]=ESP.getFlashChipSize();hardware["mac"]=ETH.macAddress();
   auto memory=document.createNestedObject("memory");memory["free_heap"]=ESP.getFreeHeap();memory["min_free_heap"]=ESP.getMinFreeHeap();
   auto storage=document.createNestedObject("storage");storage["partition"]="appcfg";storage["offset"]=0xF00000;storage["size"]=0x10000;
-  storage["firmware_slot"]="factory";storage["firmware_offset"]=0x10000;storage["firmware_size"]=0x3F0000;storage["schema"]=active_.schema;
+  const auto* running=esp_ota_get_running_partition();
+  storage["firmware_slot"]=running?running->label:"unknown";storage["firmware_offset"]=running?running->address:0;storage["firmware_size"]=running?running->size:0;storage["schema"]=active_.schema;
   {Lock lock(config_mutex_);storage["config_ok"]=store_.writable();storage["config_error"]=store_.error();}
   auto network=document.createNestedObject("network");network["ip"]=ETH.localIP().toString();network["link_up"]=ETH.linkUp();network["http_port"]=80;
   auto protocol=document.createNestedObject("protocol");protocol["driver"]=active_.driver;protocol["baud"]=active_.baud;protocol["tx_pin"]=UPS_UART_TX;protocol["rx_pin"]=UPS_UART_RX;
@@ -292,9 +367,11 @@ esp_err_t WebService::handle(httpd_req_t* r){
       case auth::Endpoint::Schedules:return json(r,management_.schedulesJson());
       case auth::Endpoint::Notifications:return json(r,management_.notificationsJson());
       case auth::Endpoint::About:return about(r);
+      case auth::Endpoint::Firmware:return firmwareInfo(r);
       default:return error(r,"404 Not Found","Unknown route");
     }
   }
+  if(route->id==auth::Endpoint::Firmware)return firmwareUpload(r);
   std::string body;if(!readBody(r,route->max_body,body))return ESP_FAIL;
   if(route->id==auth::Endpoint::Config){
     Lock lock(config_mutex_);Config candidate;

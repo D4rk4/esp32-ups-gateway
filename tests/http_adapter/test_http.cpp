@@ -1,5 +1,8 @@
 #include "harness.hpp"
+#include <esp_ota_ops.h>
 #include <iostream>
+
+namespace gateway { void checkFirmwareProbation(uint64_t now_ms,bool services_ready,bool ethernet_link,bool has_ip); }
 
 namespace {
 int failures=0;
@@ -17,7 +20,11 @@ struct Device {
   gateway::UpsService ups{active,events};gateway::SnmpService snmp{active,ups,events,0x1234};
   gateway::ManagementService management{active,ups,events};gateway::WebService web{active,store,ups,snmp,events,management,0x1234};
   Device(){
-    fixture::initial=active;fixture::now=1000;fixture::clock_step=0;fixture::writes=0;fixture::commands=0;fixture::cleared_history=0;fixture::syslog_tests=0;fixture::events.clear();
+    fixture::initial=active;fixture::now=1000;fixture::clock_step=0;fixture::writes=0;fixture::commands=0;fixture::cleared_history=0;fixture::syslog_tests=0;fixture::restarts=0;fixture::events.clear();fixture::control={};
+    fixture::ota_begins=fixture::ota_writes=fixture::ota_ends=fixture::ota_aborts=fixture::ota_switches=0;
+    fixture::ota_available=true;fixture::ota_fail_begin=fixture::ota_fail_write=fixture::ota_fail_end=fixture::ota_fail_switch=fixture::ota_fail_verify=false;
+    fixture::ota_limit=0x3f0000;fixture::ota_max_chunk=0;fixture::ota_verified_length=static_cast<size_t>(-1);fixture::ota_written.clear();
+    fixture::ota_running_state=ESP_OTA_IMG_VALID;fixture::ota_running_second=false;fixture::ota_state_available=true;fixture::ota_mark_valid_fails=false;fixture::ota_mark_valid=fixture::ota_mark_invalid=0;
     fixture::snapshot={};fixture::snapshot.connected=true;fixture::snapshot.status_valid=true;fixture::snapshot.successful_polls=1;fixture::snapshot.last_success_ms=1000;fixture::snapshot.load_percent={37,true};
     check(store.begin()&&web.begin(),"WebService starts with enough URI slots");
   }
@@ -186,5 +193,137 @@ void expiry_boundary_and_local_reset(){
   check(device.web.resetPasswordLocal(password,error)&&password=="new-local-passphrase-123","local USB password reset remains functional");
   check(code(fixture::request(HTTP_GET,"/api/status","",local.cookie))==401,"local password reset invalidates existing RAM sessions");
 }
+std::string firmwareImage(){
+  std::string image(9000,'\x5a');image[0]=char(0xe9);image[1]=1;image[12]=0;image[13]=0;
+  image[24]=0x20;image[25]=0;image[26]=0x3f;image[27]=0x3f;
+  const uint32_t segment_length=8800;for(unsigned i=0;i<4;++i)image[28+i]=char(segment_length>>(8*i));
+  image[32]=char(0x32);image[33]=char(0x54);image[34]=char(0xcd);image[35]=char(0xab);return image;
 }
-int main(){allocation_faults();public_and_roles();config_and_body_bounds();filters_status_and_handlers();expiry_boundary_and_local_reset();if(failures)return 1;std::cout<<"HTTP adapter: production handlers passed authentication, permissions, CSRF, expiry, config/schedule admission, stale status, query/CSV and management actions\n";}
+void firmware_upload_contract(){
+  Device device;const auto admin=login("admin"),op=login("operator");const auto image=firmwareImage();
+  check(code(fixture::firmwareRequest(image,"", ""))==401&&fixture::ota_begins==0,"anonymous firmware upload is denied before flash");
+  check(code(fixture::firmwareRequest(image,op.cookie,op.csrf))==403&&fixture::ota_begins==0,"operator firmware upload is denied before flash");
+  check(code(fixture::firmwareRequest(image,admin.cookie,"wrong"))==403&&fixture::ota_begins==0,"invalid CSRF is denied before flash");
+  check(code(fixture::firmwareRequest(image,admin.cookie,admin.csrf,"application/octet-stream",""))==400&&fixture::ota_begins==0,"firmware confirmation is mandatory before flash");
+  check(code(fixture::firmwareRequest(image,admin.cookie,admin.csrf,"application/json"))==415&&fixture::ota_begins==0,"firmware media type is enforced before flash");
+  check(code(fixture::firmwareRequest("",admin.cookie,admin.csrf))==413&&fixture::ota_begins==0,"empty firmware is rejected before flash");
+  check(code(fixture::firmwareRequest(image,admin.cookie,admin.csrf,"application/octet-stream","UPDATE",fixture::ota_limit+1))==413&&fixture::ota_begins==0,"firmware larger than actual slot is rejected before flash");
+  fixture::ota_available=false;
+  check(code(fixture::firmwareRequest(image,admin.cookie,admin.csrf))==409&&fixture::ota_begins==0,"missing update partition is rejected before flash");
+  fixture::ota_available=true;fixture::control.last_state="queued";
+  check(code(fixture::firmwareRequest(image,admin.cookie,admin.csrf))==409&&fixture::ota_begins==0,"queued UPS command blocks upload");
+  fixture::control={};auto bad=image;bad[0]=0;
+  check(code(fixture::firmwareRequest(bad,admin.cookie,admin.csrf))==400&&fixture::ota_begins==0,"invalid image magic is rejected before flash");
+  bad=image;bad[12]=5;
+  check(code(fixture::firmwareRequest(bad,admin.cookie,admin.csrf))==400&&fixture::ota_begins==0,"wrong target chip is rejected before flash");
+  bad=image;bad[32]=0;
+  check(code(fixture::firmwareRequest(bad,admin.cookie,admin.csrf))==400&&fixture::ota_begins==0,"bootloader or missing app descriptor is rejected before flash");
+  check(code(fixture::firmwareRequest(image.substr(0,16),admin.cookie,admin.csrf))==400&&fixture::ota_begins==0,"truncated header is rejected before flash");
+  const auto response=fixture::firmwareRequest(image,admin.cookie,admin.csrf);const auto data=payload(response);
+  check(code(response)==200&&data["ok"].as<bool>()&&data["rebooting"].as<bool>(),"validated firmware response schedules automatic reboot");
+  check(fixture::ota_written==image&&fixture::ota_begins==1&&fixture::ota_ends==1&&fixture::ota_switches==1,"exact firmware bytes are finalized before boot slot switch");
+  check(fixture::ota_max_chunk<=4096,"firmware writes are bounded to 4 KiB");
+  check(code(fixture::firmwareRequest(image,admin.cookie,admin.csrf))==409&&fixture::ota_begins==1,"second upload is blocked while reboot is pending");
+  fixture::now=2499;device.web.tick();check(fixture::restarts==0,"automatic reboot waits for response grace period");
+  fixture::control.last_state="queued";fixture::now=2500;device.web.tick();check(fixture::restarts==0,"queued UPS command defers scheduled reboot");
+  fixture::now=12499;device.web.tick();check(fixture::restarts==0,"queued UPS command delays reboot up to its bound");
+  fixture::now=12500;device.web.tick();check(fixture::restarts==1,"scheduled reboot proceeds at bounded delay");
+}
+void firmware_failure_paths(){
+  Device device;const auto admin=login("admin");const auto image=firmwareImage();
+  fixture::ota_fail_begin=true;
+  check(code(fixture::firmwareRequest(image,admin.cookie,admin.csrf))==500&&fixture::ota_aborts==0&&fixture::ota_switches==0,"failed OTA begin never switches boot slot");
+  fixture::ota_fail_begin=false;fixture::ota_fail_write=true;
+  check(code(fixture::firmwareRequest(image,admin.cookie,admin.csrf))==500&&fixture::ota_aborts==1&&fixture::ota_switches==0,"failed OTA write aborts before boot switch");
+  fixture::ota_fail_write=false;
+  check(code(fixture::firmwareRequest(image.substr(0,5000),admin.cookie,admin.csrf,"application/octet-stream","UPDATE",image.size()))==408&&fixture::ota_aborts==2&&fixture::ota_switches==0,"disconnect after flashing aborts before boot switch");
+  fixture::ota_fail_end=true;
+  check(code(fixture::firmwareRequest(image,admin.cookie,admin.csrf))==400&&fixture::ota_ends==1&&fixture::ota_switches==0,"failed OTA end never switches boot slot");
+  fixture::ota_fail_end=false;fixture::ota_fail_verify=true;
+  check(code(fixture::firmwareRequest(image,admin.cookie,admin.csrf))==400&&fixture::ota_switches==0,"failed image verification never switches boot slot");
+  fixture::ota_fail_verify=false;fixture::ota_verified_length=image.size()-1;
+  check(code(fixture::firmwareRequest(image,admin.cookie,admin.csrf))==400&&fixture::ota_switches==0,"image with trailing bytes never switches boot slot");
+  fixture::ota_verified_length=static_cast<size_t>(-1);fixture::ota_fail_switch=true;
+  check(code(fixture::firmwareRequest(image,admin.cookie,admin.csrf))==500&&fixture::ota_switches==1,"failed boot selection returns an error");
+  fixture::now=200000;device.web.tick();check(fixture::restarts==0,"all failed firmware updates leave reboot unscheduled");
+}
+void pending_image_upload(){
+  Device device;const auto admin=login("admin");const auto image=firmwareImage();
+  auto info=payload(fixture::request(HTTP_GET,"/api/firmware","",admin.cookie));
+  check(info["available"].as<bool>()&&info["reason"].as<std::string>().empty(),"available firmware info has an empty reason");
+  fixture::ota_available=false;
+  info=payload(fixture::request(HTTP_GET,"/api/firmware","",admin.cookie));
+  check(!info["available"].as<bool>()&&info["reason"].as<std::string>().find("USB")!=std::string::npos,"legacy layout advertises USB migration");
+  check(code(fixture::firmwareRequest(image,admin.cookie,admin.csrf))==409&&fixture::ota_begins==0,"legacy layout cannot receive OTA");
+  fixture::ota_available=true;fixture::ota_running_state=ESP_OTA_IMG_PENDING_VERIFY;
+  info=payload(fixture::request(HTTP_GET,"/api/firmware","",admin.cookie));
+  check(!info["available"].as<bool>()&&info["reason"].as<std::string>().find("confirm")!=std::string::npos,"pending image reports unconfirmed firmware");
+  check(code(fixture::firmwareRequest(image,admin.cookie,admin.csrf))==409&&fixture::ota_begins==0&&fixture::ota_switches==0,"unverified running image cannot overwrite its rollback slot");
+  fixture::ota_state_available=false;
+  info=payload(fixture::request(HTTP_GET,"/api/firmware","",admin.cookie));
+  check(!info["available"].as<bool>()&&info["reason"].as<std::string>().find("rollback")!=std::string::npos,"missing running-image record reports no rollback record");
+  check(code(fixture::firmwareRequest(image,admin.cookie,admin.csrf))==409&&fixture::ota_begins==0,"missing running-image record fails closed before flash");
+  fixture::ota_state_available=true;fixture::ota_running_state=ESP_OTA_IMG_UNDEFINED;
+  info=payload(fixture::request(HTTP_GET,"/api/firmware","",admin.cookie));
+  check(!info["available"].as<bool>()&&info["reason"].as<std::string>().find("rollback")!=std::string::npos,"undefined image state reports missing confirmed rollback record");
+  check(code(fixture::firmwareRequest(image,admin.cookie,admin.csrf))==409&&fixture::ota_begins==0&&fixture::ota_switches==0,"undefined image state blocks OTA before flash");
+  fixture::ota_running_state=ESP_OTA_IMG_VALID;
+  info=payload(fixture::request(HTTP_GET,"/api/firmware","",admin.cookie));
+  check(info["available"].as<bool>()&&info["reason"].as<std::string>().empty(),"confirmed running image allows OTA");
+  const auto response=fixture::firmwareRequest(image,admin.cookie,admin.csrf);
+  check(code(response)==200&&fixture::ota_begins==1&&fixture::ota_switches==1,"confirmed running image can be updated");
+}
+void firmware_reboot_admission(){
+  Device device;const auto admin=login("admin");const auto image=firmwareImage();
+  check(code(fixture::request(HTTP_POST,"/api/reboot","{\"confirm\":\"REBOOT\"}",admin.cookie,admin.csrf))==200,"manual web restart is scheduled");
+  check(code(fixture::firmwareRequest(image,admin.cookie,admin.csrf))==409&&fixture::ota_begins==0,"scheduled manual reboot blocks firmware flashing");
+  fixture::control.last_state="queued";fixture::now=2500;device.web.tick();check(fixture::restarts==0,"manual web reboot waits for a queued command");
+  fixture::control={};fixture::now=2501;device.web.tick();check(fixture::restarts==1,"manual web reboot proceeds when the queue clears");
+}
+void about_running_slot(){
+  Device device;const auto admin=login("admin");fixture::ota_running_second=true;
+  const auto response=fixture::request(HTTP_GET,"/api/about","",admin.cookie);const auto data=payload(response);
+  check(code(response)==200&&data["storage"]["firmware_slot"].as<std::string>()=="ota_1"&&data["storage"]["firmware_offset"].as<unsigned>()==0x400000&&data["storage"]["firmware_size"].as<unsigned>()==0x3f0000,"about reports the actual running slot, offset and size");
+}
+void firmware_probation(){
+  Device device;
+  fixture::ota_state_available=false;
+  gateway::checkFirmwareProbation(120000,false,false,false);
+  check(fixture::ota_mark_invalid==0&&fixture::ota_mark_valid==0,"missing OTA state does not roll back a first USB installation");
+  fixture::ota_state_available=true;fixture::ota_running_state=ESP_OTA_IMG_UNDEFINED;
+  gateway::checkFirmwareProbation(120000,false,false,false);
+  check(fixture::ota_mark_invalid==0&&fixture::ota_mark_valid==0,"undefined OTA state does not roll back a USB installation");
+  fixture::ota_running_state=ESP_OTA_IMG_VALID;
+  gateway::checkFirmwareProbation(120000,false,false,false);
+  check(fixture::ota_mark_invalid==0&&fixture::ota_mark_valid==0,"already-valid image never enters probation");
+  fixture::ota_running_state=ESP_OTA_IMG_PENDING_VERIFY;
+  gateway::checkFirmwareProbation(3000,true,false,true);
+  check(fixture::ota_mark_valid==0,"static IP alone cannot pass probation without a physical link");
+  gateway::checkFirmwareProbation(5000,true,true,false);
+  check(fixture::ota_mark_valid==0,"Ethernet link without an IP cannot pass probation");
+  gateway::checkFirmwareProbation(7000,false,true,true);
+  check(fixture::ota_mark_valid==0,"config and services must start before passing probation");
+  gateway::checkFirmwareProbation(119999,true,true,true);
+  check(fixture::ota_mark_valid==1&&fixture::ota_mark_invalid==0,"ready pending image is marked valid before deadline");
+  fixture::ota_mark_valid=0;gateway::checkFirmwareProbation(119999,false,false,false);
+  check(fixture::ota_mark_invalid==0,"pending image has a full 120-second probation");
+  gateway::checkFirmwareProbation(120000,false,false,false);
+  check(fixture::ota_mark_invalid==1&&fixture::ota_mark_valid==0,"pending image rolls back at deadline if startup is incomplete");
+  fixture::ota_mark_invalid=0;gateway::checkFirmwareProbation(120000,true,true,true);
+  check(fixture::ota_mark_invalid==1&&fixture::ota_mark_valid==0,"deadline takes precedence over late readiness");
+}
+void firmware_route_access(){
+  Device device;
+  const auto admin=login("admin"),op=login("operator"),viewer=login("viewer");
+  check(code(fixture::request(HTTP_GET,"/api/firmware"))==401,"firmware information requires a session");
+  check(code(fixture::request(HTTP_GET,"/api/firmware","",viewer.cookie))==403,"viewers cannot access firmware information");
+  check(code(fixture::request(HTTP_GET,"/api/firmware","",op.cookie))==403,"operators cannot access firmware information");
+  const auto response=fixture::request(HTTP_GET,"/api/firmware","",admin.cookie);
+  check(code(response)==200,"administrators can read firmware information");
+  if(code(response)==200){const auto data=payload(response);check(data["available"].is<bool>()&&data["max_image_bytes"].is<unsigned>()&&data["version"].as<std::string>()=="0.2.0","firmware information exposes availability, partition limit, and running version");}
+  check(code(fixture::request(HTTP_POST,"/api/firmware","image",viewer.cookie,viewer.csrf))==403,"viewers cannot upload firmware");
+  check(code(fixture::request(HTTP_POST,"/api/firmware","image",op.cookie,op.csrf))==403,"operators cannot upload firmware");
+  check(code(fixture::request(HTTP_POST,"/api/firmware","image",admin.cookie))==403,"firmware upload requires CSRF");
+}
+}
+int main(){allocation_faults();public_and_roles();config_and_body_bounds();filters_status_and_handlers();expiry_boundary_and_local_reset();firmware_route_access();firmware_upload_contract();firmware_failure_paths();pending_image_upload();firmware_reboot_admission();about_running_slot();firmware_probation();if(failures)return 1;std::cout<<"HTTP adapter: production handlers passed authentication, permissions, CSRF, expiry, config/schedule admission, stale status, query/CSV and management actions\n";}

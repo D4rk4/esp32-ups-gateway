@@ -29,6 +29,8 @@ class WebService {
   esp_err_t eventsResponse(httpd_req_t* request,const auth::RequestTarget& target,bool csv);
   esp_err_t capabilities(httpd_req_t* request);
   esp_err_t about(httpd_req_t* request);
+  esp_err_t firmwareInfo(httpd_req_t* request);
+  esp_err_t firmwareUpload(httpd_req_t* request);
   const Config& active_;ConfigStore& store_;UpsService& ups_;SnmpService& snmp_;EventBus& events_;ManagementService& management_;
   uint32_t boot_id_;auth::SessionStore sessions_;
   httpd_handle_t server_{nullptr};SemaphoreHandle_t config_mutex_{nullptr},auth_mutex_{nullptr};

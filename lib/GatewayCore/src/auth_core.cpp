@@ -170,13 +170,14 @@ bool SessionStore::csrfValid(const std::string& token,const std::string& csrf){
 }
 void SessionStore::logout(const std::string& token){for(auto& session:sessions_)if(!token.empty()&&fixedEqual(session.token,token))session={};}
 void SessionStore::invalidateAll(){for(auto& session:sessions_)session={};}
-const std::array<Route,25>& routes(){
-  static const std::array<Route,25> value{{
+const std::array<Route,27>& routes(){
+  static const std::array<Route,27> value{{
     {Method::Get,"/",Endpoint::Root,Role::None,false,0},
     {Method::Get,"/api/session",Endpoint::Session,Role::None,false,0},
     {Method::Get,"/api/status",Endpoint::Status,Role::Viewer,false,0},
     {Method::Get,"/api/config",Endpoint::Config,Role::Admin,false,0},
     {Method::Get,"/api/config/export",Endpoint::ConfigExport,Role::Admin,false,0},
+    {Method::Get,"/api/firmware",Endpoint::Firmware,Role::Admin,false,0},
     {Method::Get,"/api/events",Endpoint::Events,Role::Viewer,false,0},
     {Method::Get,"/api/events.csv",Endpoint::EventsCsv,Role::Viewer,false,0},
     {Method::Get,"/api/capabilities",Endpoint::Capabilities,Role::Viewer,false,0},
@@ -190,6 +191,7 @@ const std::array<Route,25>& routes(){
     {Method::Post,"/api/login",Endpoint::Login,Role::None,false,2048},
     {Method::Post,"/api/logout",Endpoint::Logout,Role::Viewer,true,2048},
     {Method::Post,"/api/config",Endpoint::Config,Role::Admin,true,12288},
+    {Method::Post,"/api/firmware",Endpoint::Firmware,Role::Admin,true,0},
     {Method::Post,"/api/command",Endpoint::Command,Role::Operator,true,2048},
     {Method::Post,"/api/trap-test",Endpoint::TrapTest,Role::Admin,true,2048},
     {Method::Post,"/api/syslog-test",Endpoint::SyslogTest,Role::Admin,true,2048},
