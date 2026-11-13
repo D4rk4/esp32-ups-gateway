@@ -25,6 +25,10 @@ ups::Snapshot snapshot;
 ups::Command last_command{};
 ups::CommandArgs last_args{};
 std::vector<gateway::Event> events;
+gateway::PersistenceStatus persistence{true,"",0,3825,0,0};
+bool fail_log_clear=false,fail_log_flush=false,fail_history_read=false;
+unsigned log_flushes=0;
+std::vector<std::string> lifecycle;
 httpd_config_t server_config;
 std::vector<httpd_uri_t> registered;
 httpd_req_t request(httpd_method_t method,const std::string& target,const std::string& body,const std::string& cookie,const std::string& csrf,bool activity){
@@ -91,7 +95,7 @@ esp_err_t httpd_resp_send(httpd_req_t* r,const char* data,size_t size){sendHeade
 esp_err_t httpd_resp_send_chunk(httpd_req_t* r,const char* data,size_t size){sendHeaders(r);if(size)r->response.append(data,size);return ESP_OK;}
 void esp_fill_random(void* data,size_t size){static uint32_t token=0;++token;auto* bytes=static_cast<uint8_t*>(data);for(size_t i=0;i<size;++i)bytes[i]=uint8_t((token>>((i%4)*8))^(i*33));}
 uint32_t millis(){return uint32_t(fixture::now);}
-void FakeESP::restart()const{++fixture::restarts;}
+void FakeESP::restart()const{fixture::lifecycle.push_back("restart");++fixture::restarts;}
 namespace gateway {
 uint64_t uptimeMs(){const uint64_t value=fixture::now;fixture::now+=fixture::clock_step;return value;}
 bool ConfigStore::begin(){saved_=fixture::initial;writable_=true;return true;}
@@ -112,9 +116,17 @@ bool UpsService::enqueue(ups::Command command,const ups::CommandArgs& args,uint3
 }
 SnmpService::SnmpService(const Config& c,UpsService& u,EventBus& e,uint32_t boot):config_(c),ups_(u),events_(e),boot_id_(boot){}
 SnmpStats SnmpService::stats()const{return {};}
+size_t PersistentLogStore::size()const{return 0;}
+bool PersistentLogStore::read(size_t,void*,size_t){return false;}
+bool PersistentLogStore::write(size_t,const void*,size_t){return false;}
+bool PersistentLogStore::erase(size_t,size_t){return false;}
 std::vector<Event> EventBus::latest()const{return fixture::events;}
 void EventBus::publish(EventType type,uint8_t severity,const std::string& message,uint64_t time){fixture::events.push_back({uint32_t(fixture::events.size()+1),time,type,severity,message});}
-void EventBus::clearLog(){fixture::events.clear();}
+std::vector<Event> EventBus::history(uint32_t before,size_t limit){if(fixture::fail_history_read){fixture::persistence.ok=false;fixture::persistence.error="Synthetic history read failure";return {};}std::vector<Event> result;for(const auto& event:fixture::events){if(!before||(event.seq!=before&&uint32_t(before-event.seq)<0x80000000u)){result.push_back(event);if(result.size()>=limit)break;}}return result;}
+PersistenceStatus EventBus::persistenceStatus()const{return fixture::persistence;}
+bool EventBus::clearLog(std::string& error){if(fixture::fail_log_clear){error="Synthetic clear failure";return false;}fixture::events.clear();return true;}
+bool EventBus::flushPending(std::string& error){fixture::lifecycle.push_back("flush");++fixture::log_flushes;if(fixture::fail_log_flush){error="Synthetic flush failure";return false;}return true;}
+uint32_t EventBus::latestSequence()const{return fixture::events.empty()?0:fixture::events.front().seq;}
 ManagementService::ManagementService(const Config& c,UpsService& u,EventBus& e):config_(c),ups_(u),events_(e),scheduler_(c){}
 std::string ManagementService::alarmsJson()const{return alarms_.json();}
 std::string ManagementService::historyJson(size_t limit)const{fixture::history_limit=limit;return history_.json(config_.history_interval_s,limit);}

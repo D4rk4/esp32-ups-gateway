@@ -35,6 +35,7 @@ ManagementService::ManagementService(const Config& c,UpsService& ups,EventBus& e
 bool ManagementService::begin(){
   if(mutex_)return true;
   mutex_=xSemaphoreCreateMutex();if(!mutex_)return false;
+  last_syslog_seq_=events_.latestSequence();
   setenv("TZ",config_.timezone.c_str(),1);tzset();
   if(config_.ntp_enabled)configTzTime(config_.timezone.c_str(),config_.ntp_server.c_str());
   ScheduleJournal journal;std::string error;const bool journal_ok=readJournal(journal,error);scheduler_.begin(journal,journal_ok);

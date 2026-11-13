@@ -20,7 +20,7 @@ struct Device {
   gateway::UpsService ups{active,events};gateway::SnmpService snmp{active,ups,events,0x1234};
   gateway::ManagementService management{active,ups,events};gateway::WebService web{active,store,ups,snmp,events,management,0x1234};
   Device(){
-    fixture::initial=active;fixture::now=1000;fixture::clock_step=0;fixture::writes=0;fixture::commands=0;fixture::cleared_history=0;fixture::syslog_tests=0;fixture::restarts=0;fixture::events.clear();fixture::control={};
+    fixture::initial=active;fixture::now=1000;fixture::clock_step=0;fixture::writes=0;fixture::commands=0;fixture::cleared_history=0;fixture::syslog_tests=0;fixture::restarts=0;fixture::events.clear();fixture::control={};fixture::persistence={true,"",0,3825,0,0};fixture::fail_log_clear=fixture::fail_log_flush=fixture::fail_history_read=false;fixture::log_flushes=0;fixture::lifecycle.clear();
     fixture::ota_begins=fixture::ota_writes=fixture::ota_ends=fixture::ota_aborts=fixture::ota_switches=0;
     fixture::ota_available=true;fixture::ota_fail_begin=fixture::ota_fail_write=fixture::ota_fail_end=fixture::ota_fail_switch=fixture::ota_fail_verify=false;
     fixture::ota_limit=0x3f0000;fixture::ota_max_chunk=0;fixture::ota_verified_length=static_cast<size_t>(-1);fixture::ota_written.clear();
@@ -142,6 +142,27 @@ void config_and_body_bounds(){
   check(code(post("{\"snmp_write_community\":\"\"}"))==200&&device.store.saved().snmp_write_community.empty(),"explicit empty write community disables SET");
   check(code(post("{\"snmp_write_community\":\"test-write-community\"}"))==200,"write community can be reconfigured");
   check(code(fixture::request(HTTP_POST,"/api/reset-config","{\"confirm\":\"RESET_CONFIG\",\"keep_network\":true}",admin.cookie,admin.csrf))==200&&device.store.saved().web_password=="admin-passphrase-123"&&device.store.saved().snmp_write_community.empty(),"functional reset preserves access credentials and disables SET");
+}
+void persistent_event_contract(){
+  Device device;const auto admin=login("admin");fixture::events.clear();
+  for(uint32_t seq=200;seq>0;--seq)fixture::events.push_back({seq,seq*1000,gateway::EventType::UpsFault,uint8_t(seq%50==0?3:1),seq%50==0?"match":"other",0});
+  fixture::persistence={true,"",190,3825,10,2};
+  auto response=fixture::request(HTTP_GET,"/api/events?min_severity=3&contains=match&limit=2","",admin.cookie);auto data=payload(response);
+  check(code(response)==200&&data["events"].size()==2&&data["events"][0]["seq"].as<unsigned>()==200&&data["events"][1]["seq"].as<unsigned>()==150,"filters scan more than 48 raw records to fill page");
+  check(data["next_before"].as<unsigned>()==150,"cursor is last examined event, not end of fetched chunk");
+  check(data["persistence"]["available"].as<bool>()&&data["persistence"]["stored"].as<unsigned>()==190&&data["persistence"]["capacity"].as<unsigned>()==3825&&data["persistence"]["pending"].as<unsigned>()==10&&data["persistence"]["dropped"].as<unsigned>()==2&&data["persistence"]["flush_interval_s"].as<unsigned>()==30,"persistence metadata reflects EventBus status");
+  response=fixture::request(HTTP_GET,"/api/events?min_severity=3&contains=match&limit=2&before=150","",admin.cookie);data=payload(response);
+  check(data["events"].size()==2&&data["events"][0]["seq"].as<unsigned>()==100&&data["events"][1]["seq"].as<unsigned>()==50&&data["next_before"].as<unsigned>()==50,"older page is exclusive and continues across raw chunks");
+  response=fixture::request(HTTP_GET,"/api/events?min_severity=3&contains=match&limit=2&before=50","",admin.cookie);data=payload(response);check(data["events"].size()==0&&data["next_before"].as<unsigned>()==0,"exhausted filtered history ends pagination");
+  response=fixture::request(HTTP_GET,"/api/events.csv?min_severity=3&contains=match&limit=2&before=150","",admin.cookie);check(code(response)==200&&response.response.find("100,")!=std::string::npos&&response.response.find("150,")==std::string::npos,"CSV exports requested filtered page");
+  for(const char* query:{"before=-1","before=abc","before=4294967296","before=1&before=2"})check(code(fixture::request(HTTP_GET,std::string("/api/events?")+query,"",admin.cookie))==400,"invalid or repeated cursor rejected");
+  fixture::events={{2,0,gateway::EventType::Startup,1,"two",0},{1,0,gateway::EventType::Startup,1,"one",0},{UINT32_MAX,0,gateway::EventType::Startup,1,"max",0},{UINT32_MAX-1,0,gateway::EventType::Startup,1,"max-minus-one",0}};
+  response=fixture::request(HTTP_GET,"/api/events?limit=2","",admin.cookie);data=payload(response);check(data["events"].size()==2&&data["next_before"].as<unsigned>()==1,"first page preserves wrap cursor");response=fixture::request(HTTP_GET,"/api/events?limit=2&before=1","",admin.cookie);data=payload(response);check(data["events"].size()==2&&data["events"][0]["seq"].as<uint32_t>()==UINT32_MAX&&data["events"][1]["seq"].as<uint32_t>()==UINT32_MAX-1&&data["next_before"].as<unsigned>()==0,"older page crosses sequence wrap without loss");
+  fixture::fail_history_read=true;response=fixture::request(HTTP_GET,"/api/events?limit=1","",admin.cookie);data=payload(response);check(!data["persistence"]["available"].as<bool>()&&data["persistence"]["error"].as<std::string>()=="Synthetic history read failure","read-time storage failure appears in response metadata");fixture::fail_history_read=false;
+  fixture::persistence={false,"Synthetic write failure",190,3825,10,2};response=fixture::request(HTTP_GET,"/api/events?limit=1","",admin.cookie);data=payload(response);check(!data["persistence"]["available"].as<bool>()&&data["persistence"]["error"].as<std::string>()=="Synthetic write failure","storage failure is visible without hiding RAM events");
+  fixture::fail_log_clear=true;response=fixture::request(HTTP_POST,"/api/logs/clear","{\"target\":\"events\",\"confirm\":\"CLEAR_LOG\"}",admin.cookie,admin.csrf);check(code(response)==500&&response.response.find("Synthetic clear failure")!=std::string::npos&&!fixture::events.empty(),"failed durable clear returns error and preserves events");
+  fixture::fail_log_clear=false;response=fixture::request(HTTP_POST,"/api/logs/clear","{\"target\":\"events\",\"confirm\":\"CLEAR_LOG\"}",admin.cookie,admin.csrf);check(code(response)==200&&fixture::events.empty(),"confirmed durable clear succeeds");
+  response=fixture::request(HTTP_POST,"/api/reboot","{\"confirm\":\"REBOOT\"}",admin.cookie,admin.csrf);check(code(response)==200,"restart scheduled for flush test");fixture::fail_log_flush=true;fixture::now+=2000;device.web.tick();check(fixture::lifecycle==std::vector<std::string>{"flush","restart"},"restart attempts flush first and proceeds on failure");
 }
 void filters_status_and_handlers(){
   Device device;const auto admin=login("admin");
@@ -326,4 +347,4 @@ void firmware_route_access(){
   check(code(fixture::request(HTTP_POST,"/api/firmware","image",admin.cookie))==403,"firmware upload requires CSRF");
 }
 }
-int main(){allocation_faults();public_and_roles();config_and_body_bounds();filters_status_and_handlers();expiry_boundary_and_local_reset();firmware_route_access();firmware_upload_contract();firmware_failure_paths();pending_image_upload();firmware_reboot_admission();about_running_slot();firmware_probation();if(failures)return 1;std::cout<<"HTTP adapter: production handlers passed authentication, permissions, CSRF, expiry, config/schedule admission, stale status, query/CSV and management actions\n";}
+int main(){allocation_faults();public_and_roles();config_and_body_bounds();persistent_event_contract();filters_status_and_handlers();expiry_boundary_and_local_reset();firmware_route_access();firmware_upload_contract();firmware_failure_paths();pending_image_upload();firmware_reboot_admission();about_running_slot();firmware_probation();if(failures)return 1;std::cout<<"HTTP adapter: production handlers passed authentication, permissions, CSRF, expiry, config/schedule admission, stale status, query/CSV and management actions\n";}

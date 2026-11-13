@@ -129,7 +129,7 @@ bool WebService::matchUri(const char* registered,const char* uri,size_t length){
 }
 void WebService::tick(){
   const uint64_t when=reboot_at_.load(),now=uptimeMs();
-  if(when&&now>=when&&(ups_.controlStatus().last_state!="queued"||now-when>=10000))ESP.restart();
+  if(when&&now>=when&&(ups_.controlStatus().last_state!="queued"||now-when>=10000)){std::string why;if(!events_.flushPending(why))Serial.printf("Event log flush before restart failed: %s\n",why.c_str());ESP.restart();}
 }
 bool WebService::resetPasswordLocal(std::string& password,std::string& why){
   bool ok=false;{Lock lock(config_mutex_);ok=store_.resetPassword(password,why);}
@@ -271,17 +271,22 @@ esp_err_t WebService::status(httpd_req_t* r){
   return json(r,document);
 }
 esp_err_t WebService::eventsResponse(httpd_req_t* r,const auth::RequestTarget& target,bool csv){
-  size_t severity=1,limit=48;
-  if(!onlyQuery(target,{"min_severity","contains","limit"})||!queryNumber(target,"min_severity",1,3,1,severity)||!queryNumber(target,"limit",1,48,48,limit))return error(r,"400 Bad Request","Invalid event filter; severity is 1..3 and limit is 1..48");
-  const std::string* contains=target.get("contains");const auto snapshot=events_.latest();
+  size_t severity=1,limit=48,before=0;
+  if(!onlyQuery(target,{"min_severity","contains","limit","before"})||!queryNumber(target,"min_severity",1,3,1,severity)||!queryNumber(target,"limit",1,48,48,limit)||!queryNumber(target,"before",0,UINT32_MAX,0,before))return error(r,"400 Bad Request","Invalid event filter or cursor");
+  const std::string* contains=target.get("contains");const auto initial=events_.persistenceStatus();const size_t scan_limit=initial.capacity+initial.pending+events_.capacity();
+  uint32_t cursor=static_cast<uint32_t>(before),last_scanned=0;size_t scanned=0;bool done=false;
   commonHeaders(r);httpd_resp_set_type(r,csv?"text/csv; charset=utf-8":"application/json; charset=utf-8");
   if(csv)httpd_resp_set_hdr(r,"Content-Disposition","attachment; filename=ups-gateway-events.csv");
   const std::string prefix=csv?"seq,uptime_seconds,utc_unix_seconds,type,severity,message\r\n":"{\"boot_id\":\""+hexId(boot_id_)+"\",\"capacity\":"+std::to_string(events_.capacity())+",\"events\":[";
   if(httpd_resp_send_chunk(r,prefix.data(),prefix.size())!=ESP_OK)return ESP_FAIL;
   size_t count=0;DynamicJsonDocument row_document(768);
-  for(const auto& event:snapshot){
+  while(!done&&scanned<scan_limit){
+    const auto chunk=events_.history(cursor,std::min<size_t>(48,scan_limit-scanned));if(chunk.empty())break;
+    bool advanced=false;
+    for(const auto& event:chunk){
+    if(!event.seq||(cursor&&(event.seq==cursor||uint32_t(cursor-event.seq)>=0x80000000u)))continue;
+    cursor=event.seq;last_scanned=event.seq;++scanned;advanced=true;
     if(event.severity<severity||(contains&&!contains->empty()&&event.message.find(*contains)==std::string::npos&&std::string(eventName(event.type)).find(*contains)==std::string::npos))continue;
-    if(count==limit)break;
     std::string row;
     if(csv){
       row=std::to_string(event.seq)+","+std::to_string(event.uptime_ms/1000)+","+(event.utc?std::to_string(event.utc):"")+","+auth::csvCell(eventName(event.type))+","+std::to_string(event.severity)+","+auth::csvCell(event.message)+"\r\n";
@@ -294,9 +299,12 @@ esp_err_t WebService::eventsResponse(httpd_req_t* r,const auth::RequestTarget& t
       serializeJson(row_document,row);
     }
     if(httpd_resp_send_chunk(r,row.data(),row.size())!=ESP_OK)return ESP_FAIL;
-    ++count;
+    if(++count==limit){done=true;break;}
+    }
+    if(!advanced||chunk.size()<48)break;
   }
-  if(!csv){const std::string suffix="],\"count\":"+std::to_string(count)+"}";if(httpd_resp_send_chunk(r,suffix.data(),suffix.size())!=ESP_OK)return ESP_FAIL;}
+  const uint32_t next_before=last_scanned&&!events_.history(last_scanned,1).empty()?last_scanned:0;
+  if(!csv){const auto persistence=events_.persistenceStatus();DynamicJsonDocument metadata(512);metadata["next_before"]=next_before;auto p=metadata.createNestedObject("persistence");p["available"]=persistence.ok;p["status"]=persistence.ok?"ok":"error";p["error"]=persistence.error;p["stored"]=persistence.stored;p["capacity"]=persistence.capacity;p["pending"]=persistence.pending;p["dropped"]=persistence.dropped;p["flush_interval_s"]=30;if(metadata.overflowed())return ESP_FAIL;std::string fields;serializeJson(metadata,fields);const std::string suffix="],\"count\":"+std::to_string(count)+","+fields.substr(1);if(httpd_resp_send_chunk(r,suffix.data(),suffix.size())!=ESP_OK)return ESP_FAIL;}
   return httpd_resp_send_chunk(r,nullptr,0);
 }
 esp_err_t WebService::capabilities(httpd_req_t* r){
@@ -431,7 +439,7 @@ esp_err_t WebService::handle(httpd_req_t* r){
     case auth::Endpoint::LogsClear:{
       if(!onlyKeys(object,{"target","confirm"})||!document["target"].is<const char*>()||!document["confirm"].is<const char*>()||document["confirm"].as<std::string>()!="CLEAR_LOG")return error(r,"400 Bad Request","Target and CLEAR_LOG confirmation are required");
       const std::string target=document["target"].as<std::string>();
-      if(target=="events")events_.clearLog();else if(target=="history")management_.clearHistory();else return error(r,"400 Bad Request","Target must be events or history");
+      if(target=="events"){std::string why;if(!events_.clearLog(why))return error(r,"500 Internal Server Error",why);}else if(target=="history")management_.clearHistory();else return error(r,"400 Bad Request","Target must be events or history");
       return json(r,"{\"ok\":true}");
     }
     case auth::Endpoint::ResetConfig:{

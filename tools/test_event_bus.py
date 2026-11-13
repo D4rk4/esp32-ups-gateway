@@ -24,7 +24,10 @@ def main():
     subprocess.run([os.environ.get('CXX', 'g++'), *flags,
                     *['-I' + str(ROOT / p) for p in includes],
                     str(ROOT / 'tests/platform/test_event_bus.cpp'),
+                    str(ROOT / 'tests/platform/fake_partition.cpp'),
                     str(ROOT / 'src/event_bus.cpp'),
+                    str(ROOT / 'src/persistent_log_store.cpp'),
+                    str(ROOT / 'lib/GatewayCore/src/persistent_log.cpp'),
                     str(ROOT / 'lib/GatewayCore/src/events.cpp'),
                     '-o', str(executable)], cwd=ROOT, env=environment, check=True)
     subprocess.run([str(executable)], cwd=ROOT, env=environment, check=True)

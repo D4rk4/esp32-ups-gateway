@@ -42,6 +42,7 @@ void consoleCommand(const String& command){
     }else{Serial.print("Password reset failed: ");Serial.println(error.c_str());}
   }else if(command=="reboot"){
     if(upsService->controlStatus().last_state=="queued"){Serial.println("Command still queued; wait before reboot.");return;}
+    std::string error;if(!events.flushPending(error))Serial.printf("Warning: persistent log flush failed: %s\n",error.c_str());
     Serial.println("Restarting gateway...");Serial.flush();ESP.restart();
   }else if(command.length())Serial.println("Unknown command; type help.");
 }
@@ -85,6 +86,7 @@ void setup(){
 
 void loop(){
   gateway::checkFirmwareProbation(gateway::uptimeMs(),running&&configReady,running&&ETH.linkUp(),running&&static_cast<uint32_t>(ETH.localIP())!=0);
+  events.tick();
   if(!running){delay(100);return;}
   webService->tick();
   managementService->tick();

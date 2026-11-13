@@ -54,6 +54,8 @@ struct FakeESP {
   uint32_t getCpuFreqMHz()const{return 240;}
 };
 inline FakeESP ESP;
+struct FakeSerial {template<typename... Args> void printf(const char*,Args...)const{}};
+inline FakeSerial Serial;
 struct FakeIPAddress {std::string toString()const{return "192.0.2.10";}};
 struct FakeETH {
   FakeIPAddress localIP()const{return {};}
