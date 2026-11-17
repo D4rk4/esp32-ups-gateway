@@ -15,3 +15,6 @@ target/
 .metrics/
 .coverage
 .coverage-empty-config
+
+.prismor/
+.claude/
