@@ -1,53 +1,38 @@
 # ESP32 UPS Gateway 0.2.0
 
-Модульная прошивка для **Olimex ESP32-POE / ESP32-POE-16MB с WROOM и 16 MB
-flash + MOD-RS232 на UEXT**. Мониторинг через APC PowerNet SNMPv2c, traps,
-веб-интерфейс на английском языке, управление через отдельный драйвер ИБП.
+Modular firmware for **Olimex ESP32-POE / ESP32-POE-16MB with WROOM and 16 MB flash + MOD-RS232 on UEXT**. Monitoring via APC PowerNet SNMPv2c, traps, web interface in English, UPS control through a separate UPS driver.
 
-**Важная граница проверки:** проект собран для ESP32 и проверен тестами на
-компьютере. Физического ESP32/Inform Sinus EVO в этой среде нет. Для Inform
-Sinus EVO поддерживается драйвер MegaTec Q1. По умолчанию управляющие команды
-выключены. Мониторинг запускается автоматически.
+**Verification boundary:** the project is built for ESP32 and tested on a computer. There is no physical ESP32 / Inform Sinus EVO in this environment. For Inform Sinus EVO the MegaTec Q1 driver is supported. Control commands are disabled by default. Monitoring starts automatically.
 
-## Что входит
+## What's included
 
-- Ethernet LAN8720, DHCP или статический IPv4, без настройки Wi-Fi.
-- SNMPv2c GET/GETNEXT/GETBULK, подмножество PowerNet MIB и состояние связи с ИБП.
-- Управление ИБП по SNMP SET через объекты управления PowerNet (совместимо с NUT `snmp-ups`) с отдельной Write Community; по умолчанию выключено.
-- SNMPv2c traps: батарея/сеть, low battery/восстановление, потеря/восстановление RS232, запуск и тест канала.
-- Веб-интерфейс в компоновке классического APC: вкладки, боковое меню, компактные таблицы и вертикальный сегментный индикатор нагрузки. Ресурсы встроены в приложение и не требуют отдельной загрузки файловой системы.
-- Вход по сессии, роли администратора/оператора/наблюдателя, выход и таймаут бездействия; подтверждение управляющей команды отдельным экраном.
-- Активные тревоги, настраиваемые пороги, журнал событий с фильтром и CSV, RAM-история 240 измерений с графиком и CSV.
-- Время NTP/вручную, POSIX-часовой пояс, разовые и еженедельные расписания поддержанных драйвером команд, UDP syslog с отдельной очередью.
-- Два получателя traps с отдельными community и портами.
-- Экспорт/импорт настроек, случайная SNMP community, локальное восстановление веб-пароля по USB.
-- Два OTA-слота приложения; конфигурация хранится отдельно и переживает штатное обновление.
-- Готовые бинарники в `firmware/`, полный исходный код, проверяющий сохранность конфигурации скрипт установки.
+- Ethernet LAN8720, DHCP or static IPv4, no Wi-Fi configuration.
+- SNMPv2c GET/GETNEXT/GETBULK, PowerNet MIB subset and UPS link status.
+- UPS control via SNMP SET through PowerNet control objects (compatible with NUT `snmp-ups`) with a separate Write Community; disabled by default.
+- SNMPv2c traps: battery/mains, low battery/restoration, RS232 loss/restoration, startup and channel test.
+- Web interface in classic APC layout: tabs, side menu, compact tables and vertical segment load bar. Resources are embedded in the application and do not require a separate filesystem upload.
+- Login by session, administrator/operator/observer roles, logout and idle timeout; control command confirmation on a separate screen.
+- Active alarms, configurable thresholds, event log with filter and CSV, 240-measurement RAM history with graph and CSV.
+- NTP/manual time, POSIX time zone, one-off and weekly schedules for driver-supported commands, UDP syslog with a separate queue.
+- Two trap receivers with separate communities and ports.
+- Settings export/import, random SNMP community, web password recovery over USB.
+- Two application OTA slots; configuration stored separately and survives a normal update.
+- Ready binaries in `firmware/`, full source code, configuration integrity-checking install script.
 
-Полной копии сетевой карты APC или KPM220 здесь нет: SMTP, WoL, SNMPv3,
-INFORM, HTTPS, RADIUS, SSH/Telnet, FTP и обновление прошивки по HTTP не
-реализованы. Обновление выполняется через USB с одним слотом приложения.
-PDU-розетки не создаются из ничего: команды и данные зависят от драйвера ИБП.
-Карта переноса функций и API — `docs/APC_PORT_RU.md`. Извлечённый из
-пользовательского APC-пакета референс включён в `reference/apc-webui/`.
+No full copy of the APC network card or KPM220 is included here: SMTP, WoL, SNMPv3, INFORM, HTTPS, RADIUS, SSH/Telnet, FTP and firmware update over HTTP are not implemented. Update is performed over USB with a single application slot. PDU outlets are not created from nothing: commands and data depend on the UPS driver. Function/API porting map — `docs/APC_PORT.md`. Reference extracted from the user's APC package is included in `reference/apc-webui/`.
 
-## 1. Подключение оборудования
+## 1. Connecting hardware
 
-Во время USB-прошивки **отключите кабель Ethernet с PoE**. Обычный ESP32-POE
-не имеет гальванической развязки PoE; это прямое требование Olimex.
-Первичную прошивку проводите с отключённым RS232, питая плату от USB.
-MOD-RS232 преобразует уровни, но не добавляет гальваническую развязку.
+During USB flashing **disconnect the Ethernet cable with PoE**. A regular ESP32-POE has no PoE galvanic isolation; this is a direct Olimex requirement. Perform primary flashing with RS232 disconnected, powering the board from USB. MOD-RS232 converts levels but does not add galvanic isolation.
 
-| Назначение | Соединение |
+| Purpose | Connection |
 | --- | --- |
 | ESP32 TX | GPIO4 → UEXT pin 3 → MOD-RS232 |
 | ESP32 RX | GPIO36 ← UEXT pin 4 ← MOD-RS232 |
-| MOD-RS232 питание | UEXT 3.3 V и GND |
+| MOD-RS232 power | UEXT 3.3 V and GND |
 | Ethernet | LAN8720, addr 0, MDC23, MDIO18, power12, clock GPIO17 OUT |
 
-У штатно настроенного MOD-RS232 передача выходит на DB9 pin 2, приём идёт
-через pin 3. В официальном руководстве Sinus EVO 1–3 kVA также указаны
-pin 2 TX / pin 3 RX. Для этой ревизии получается перекрёстный кабель:
+With a properly configured MOD-RS232, transmission goes to DB9 pin 2 and reception through pin 3. The official Sinus EVO 1–3 kVA manual also specifies pin 2 TX / pin 3 RX. For this revision you get a crossover cable:
 
 | MOD-RS232 DB9 | Sinus EVO DB9 |
 | --- | --- |
@@ -55,15 +40,11 @@ pin 2 TX / pin 3 RX. Для этой ревизии получается пер�
 | 3 — RX | 2 — TX |
 | 5 — GND | 5 — GND |
 
-Сверьте разъём и ревизию своего ИБП. Не переносите старую распиновку
-MegaTec 9/6/7 из описания протокола на Sinus EVO. Эта сборка не предназначена
-для WROVER с другой разводкой Ethernet/PSRAM. Подробности и первоисточники:
-`docs/HARDWARE_RU.md`.
+Check your UPS connector and revision. Do not carry over the old MegaTec 9/6/7 pinout from the protocol description onto Sinus EVO. This build is not intended for WROVER with a different Ethernet/PSRAM wiring. Details and primary sources: `docs/HARDWARE.md`.
 
-## 2. Быстрая установка готовой прошивки
+## 2. Quick install of ready firmware
 
-Нужен Python 3.10+ и драйвер USB-UART вашей платы. Распакуйте архив и
-откройте терминал в каталоге `esp32-ups-gateway`.
+Python 3.10+ and your board's USB-UART driver are needed. Unpack the archive and open a terminal in the `esp32-ups-gateway` directory.
 
 ### Windows, PowerShell
 
@@ -73,7 +54,7 @@ py -3 -m venv .venv
 .\.venv\Scripts\python.exe tools\flash.py --port COM5 install
 ```
 
-Замените COM5 своим портом. Активация venv не требуется.
+Replace COM5 with your port. Venv activation is not required.
 
 ### Linux
 
@@ -83,376 +64,217 @@ python3 -m venv .venv
 .venv/bin/python tools/flash.py --port /dev/ttyUSB0 install
 ```
 
-Пользователь должен иметь доступ к выбранному последовательному порту.
-При проблеме связи можно добавить `--baud 115200` **перед** `install`.
+The user must have access to the selected serial port. If there is a communication problem, you can add `--baud 115200` **before** `install`.
 
-Скрипт проверяет размер flash (16 MB), локальные образы, новую таблицу разделов и
-контрольные суммы; сохраняет raw-копию конфигурации в `backups/`; записывает
-загрузчик, таблицу и приложение по фиксированным адресам; сбрасывает только
-выбор OTA-слота; читает область конфигурации повторно и сравнивает SHA-256.
-Чип остаётся в загрузчике до завершения проверки, поэтому первый запуск не
-вмешивается в сравнение. После успеха выполняется перезапуск. `install` —
-установка или восстановление, а не проверка совместимости старой таблицы;
-для перехода с прежней версии используйте `migrate` из раздела 7.
-При ошибке проверяйте сообщение; обычные операции не стирают всю flash и не
-сбрасывают настройки автоматически.
+The script checks flash size (16 MB), local images, the new partition table and checksums; saves a raw copy of the configuration in `backups/`; writes bootloader, partition table and application at fixed addresses; resets only the OTA slot selection; reads the configuration area again and compares SHA-256. The chip stays in the bootloader until verification completes, so the first launch does not interfere with comparison. On success a restart is performed. `install` is installation or restore, not a check of old partition table compatibility; to transition from a previous version use `migrate` from section 7. On error check the message; normal operations do not erase the entire flash and do not reset settings automatically.
 
-Для просмотра плана без платы:
+To view the plan without a board:
 
 ```bash
 python tools/flash.py --dry-run install
 ```
 
-### Первый запуск и вход в веб-интерфейс
+### First launch and web interface login
 
-**Важно:** `firmware/firmware.bin` пересобран из текущих исходников и содержит
-описанный ниже заводской вход. Проверка на физической плате не выполнялась.
-При обновлении существующие имя пользователя и пароль сохраняются и
-автоматически не меняются.
+**Important:** `firmware/firmware.bin` is rebuilt from current sources and contains the factory login described below. Verification on a physical board was not performed. On updating, existing username and password are preserved and are not automatically changed.
 
-Для новой конфигурации в прошивке из текущих исходников имя пользователя и
-пароль администратора — `ups` / `ups`. Это общедоступные слабые данные: сразу
-после входа замените пароль на уникальный, длиной не менее 12 символов, и
-используйте только доверенную сеть управления. Исключение из минимальной длины
-разрешено только для точной заводской пары `ups` / `ups`.
+For a new configuration in firmware built from current sources, the administrator username and password are `ups` / `ups`. These are publicly available weak credentials: immediately after logging in, replace the password with a unique one at least 12 characters long, and use only a trusted management network. An exception to the minimum length is allowed only for the exact factory pair `ups` / `ups`.
 
-Откройте USB-консоль на **115200 бод**. Например:
+Open the USB console at **115200 baud**. For example:
 
 ```bash
 python -m serial.tools.miniterm /dev/ttyUSB0 115200
 ```
 
-На Windows используйте COM5 вместо `/dev/ttyUSB0`; Python берите из
-созданного venv. На первом запуске выводятся веб-учётные данные и случайная
-SNMP read community. При ошибке чтения или записи конфигурации устройство
-использует временный случайный веб-пароль и не заменяет сохранённые данные;
-эти временные учётные данные выводятся в USB-консоль.
+On Windows use COM5 instead of `/dev/ttyUSB0`; take Python from the created venv. On first launch the web credentials and random SNMP read community are printed. On a configuration read or write error the device uses a temporary random web password and does not replace saved data; these temporary credentials are printed to the USB console.
 
-Если пароль утерян, команда USB-консоли `reset-password`
-сохранит новый веб-пароль без изменения остальных настроек; затем введите
-`reboot`. Для получения SNMP community войдите в веб и выполните явный
-экспорт конфигурации, содержащий секреты. Для диагностического вывода есть
-`status` и `help`.
+If the password is lost, the USB console command `reset-password` saves a new web password without changing other settings; then enter `reboot`. To obtain the SNMP community, log in to the web and perform an explicit configuration export containing secrets. For diagnostic output there are `status` and `help`.
 
-Далее отключите USB, подключите MOD-RS232/ИБП и PoE. Найдите адрес шлюза в
-DHCP-арендах коммутатора/роутера по MAC или имени `ups-gateway` и откройте
-`http://IP_ШЛЮЗА/`. Если нужно настраивать с подключённым USB, используйте
-Ethernet-порт **без PoE**. Веб использует форму входа и HTTP-сессию, SNMP — v2c; размещайте
-шлюз в доверенной сети управления. TLS и SNMPv3 в этой версии отсутствуют.
+Next disconnect USB, connect MOD-RS232/UPS and PoE. Find the gateway address in the switch/router DHCP leases by MAC or name `ups-gateway` and open `http://GATEWAY_IP/`. If configuration with USB connected is needed, use the Ethernet port **without PoE**. The web uses a login form and HTTP session, SNMP uses v2c; place the gateway in a trusted management network. TLS and SNMPv3 are absent in this version.
 
-## 3. Первичная настройка ИБП
+## 3. UPS primary setup
 
-Начальные параметры: драйвер `megatec_q1`, **2400 8N1**, период 2000 мс,
-таймаут ответа 1200 мс, потеря связи через 10000 мс.
+Initial parameters: driver `megatec_q1`, **2400 8N1**, period 2000 ms, response timeout 1200 ms, connection loss after 10000 ms.
 
-1. Дождитесь состояния «Communication with UPS established» и роста счётчика успешных опросов.
-2. Сравните входное/выходное напряжение, нагрузку, входную частоту и температуру с индикацией ИБП.
-3. В «Диагностике протокола» доступна последняя принятая строка Q1 и биты состояния.
-4. Если связи нет, проверьте кабель и параметры UART. Не включайте команды управления ради поиска протокола.
+1. Wait for the "Communication with UPS established" state and growth of the successful poll counter.
+2. Compare input/output voltage, load, input frequency and temperature with UPS indication.
+3. "Protocol diagnostics" shows the last accepted Q1 string and status bits.
+4. If there is no connection, check the cable and UART parameters. Do not enable control commands to find the protocol.
 
-Q1 не сообщает достоверные проценты заряда и оставшееся время автономии;
-они отображаются как недоступные. Измеренная входная частота не выдаётся
-за выходную. Общая неисправность не выдаётся за замену батареи или провал
-самотеста.
+Q1 does not report reliable charge percentages and remaining runtime; they are shown as unavailable. Measured input frequency is not reported as output frequency. A general fault is not reported as battery replacement or selftest failure.
 
-На главной странице нагрузка показана числом и вертикальной сегментной
-шкалой в стиле APC. Величина берётся из `load_percent`, порог — из текущих
-параметров тревоги. При недоступном/устаревшем измерении индикатор становится
-неактивным: отсутствие связи не изображается как нагрузка 0%.
+On the main page load is shown as a number and a vertical APC-style segment bar. The value is taken from `load_percent`, the threshold from current alarm parameters. On an unavailable/stale measurement the indicator becomes inactive: loss of connection is not shown as 0% load.
 
-«Сырое напряжение батареи» показывается отдельно. Множитель по умолчанию
-равен 0: пересчитанное напряжение батарейной цепи в SNMP не публикуется.
-Если ответ содержит напряжение всей цепи, установите 1. Если единица
-ответа и количество ячеек достоверно известны, задайте соответствующий
-множитель. Автоматического угадывания 24/48/72 V нет.
+"Raw battery voltage" is shown separately. The default multiplier is 0: recalculated battery circuit voltage is not published in SNMP. If the response contains the whole circuit voltage, set 1. If the response unit and cell count are reliably known, set the corresponding multiplier. There is no automatic guessing of 24/48/72 V.
 
-Для комплектаций Sinus EVO, указанных владельцем, **при напряжении Q1 на
-одну 2-вольтовую ячейку** используются следующие множители:
+For Sinus EVO configurations specified by the owner, **with Q1 voltage on one 2-volt cell** the following multipliers are used:
 
-| Модель | Батарейная цепь | `battery_multiplier` |
+| Model | Battery circuit | `battery_multiplier` |
 | --- | --- | --- |
 | Sinus EVO 1000 | 24 V, 2 × 12 V | 12 |
 | Sinus EVO 2000 | 48 V, 4 × 12 V | 24 |
 | Sinus EVO 3000 | 72 V, 6 × 12 V | 36 |
 
-Например, 2.25 V × 36 = 81 V для модели 3000. Это условный пересчёт,
-а не отдельное измерение: номинал цепи 72 V не равен текущему напряжению
-подзаряда. Не применяйте эти множители, если Q1 уже сообщает напряжение
-всего блока или цепи. Заряд и время автономии из одного напряжения не
-вычисляются; без данных драйвера строка показывает `Runtime remaining: —`.
+For example, 2.25 V × 36 = 81 V for model 3000. This is a conditional recalculation, not a separate measurement: nominal circuit 72 V is not equal to the current charging voltage. Do not apply these multipliers if Q1 already reports the voltage of the whole block or circuit. Charge and runtime are not calculated from one voltage alone; without driver data the line shows `Runtime remaining: —`.
 
-**Все изменения конфигурации применяются после перезапуска шлюза.**
-Сохранённая конфигурация и текущие рабочие параметры намеренно разделены.
+**All configuration changes apply after a gateway restart.** Saved configuration and current working parameters are intentionally separated.
 
-## 4. Observium CE и traps
+## 4. Observium CE and traps
 
-Добавьте локальное определение устройства из `integration/observium/`:
-оно узнаёт `ESP32 UPS Gateway/...` по sysDescr и подключает PowerNet-MIB.
-Шлюз не присваивает себе идентификатор конкретной модели APC; sysObjectID
-равен `0.0` до назначения собственного идентификатора. Поэтому установка
-прилагаемого определения — часть настройки обнаружения.
+Add the local device definition from `integration/observium/`: it recognizes `ESP32 UPS Gateway/...` by sysDescr and connects PowerNet-MIB. The gateway does not assign itself a specific APC model ID; sysObjectID is `0.0` until its own ID is assigned. Therefore installing the supplied definition is part of discovery setup.
 
-Примеры проверки с компьютера, где установлен Net-SNMP:
+Example verification from a computer with Net-SNMP installed:
 
 ```bash
 snmpget -v2c -c 'YOUR_READ_COMMUNITY' 192.168.1.50 1.3.6.1.2.1.1.1.0 1.3.6.1.4.1.318.1.1.1.8.1.0
 snmpwalk -v2c -c 'YOUR_READ_COMMUNITY' 192.168.1.50 1.3.6.1.4.1.318.1.1.1
 ```
 
-`upsCommStatus` должен быть 1 при исправном обмене и 2 при его потере.
-Точные типы, единицы и отсутствующие показатели перечислены в `docs/OIDS.md`.
+`upsCommStatus` must be 1 on working exchange and 2 on its loss. Exact types, units and missing indicators are listed in `docs/OIDS.md`.
 
-Управление по SNMP (после задания Write Community и включения разрешений
-управления), например короткий тест батареи:
+Control via SNMP (after setting Write Community and enabling control permissions), for example a short battery test:
 
 ```bash
 snmpset -v2c -c 'YOUR_WRITE_COMMUNITY' 192.168.1.50 1.3.6.1.4.1.318.1.1.1.7.2.2.0 i 2
 ```
 
-Для NUT: драйвер `snmp-ups`, `mibs = apc`, `community` = Write Community;
-`upscmd -l` покажет доступные команды. Таблица объектов — в `docs/OIDS.md`.
+For NUT: driver `snmp-ups`, `mibs = apc`, `community` = Write Community; `upscmd -l` shows available commands. The object table is in `docs/OIDS.md`.
 
-Для событий настройте `snmptrapd` и получателя в веб-интерфейсе ESP32.
-Traps обычно поступают на UDP 162, опрос — на UDP 161. В комплекте есть
-пример приёмника и привязки событий к устройству через syslog. В CE
-не следует рассчитывать на платный механизм Syslog Alerting; журнал
-событий и внешние уведомления — разные функции. Подробная инструкция:
-`integration/observium/README_RU.md`.
+For events configure `snmptrapd` and a receiver in the ESP32 web interface. Traps usually arrive on UDP 162, polling on UDP 161. The package includes an example receiver and event-to-device binding via syslog. In CE you should not rely on the paid Syslog Alerting mechanism; the event log and external notifications are different functions. Detailed instructions: `integration/observium/README.md`.
 
-Кнопка «Отправить тестовое уведомление» отправляет явно помеченный тест
-канала и не управляет питанием. Счётчик `sent` подтверждает только передачу
-UDP-пакета сетевому стеку. TRAP не имеет подтверждения доставки.
+The "Send test notification" button sends an explicitly marked test channel and does not control power. The `sent` counter only confirms UDP packet handover to the network stack. TRAP has no delivery acknowledgment.
 
-## 5. Управление
+## 5. Control
 
-Разрешение обычных команд и разрешение команд питания — отдельные
-настройки; оба выключены при первом запуске. Включайте их после проверки
-поддержки соответствующих команд вашим ИБП. Доступны только операции,
-объявленные драйвером.
+Regular command permission and power command permission are separate settings; both are disabled at first launch. Enable them after checking that your UPS supports the corresponding commands. Only operations declared by the driver are available.
 
-| Операция MegaTec Q1 | Команда семейства |
+| MegaTec Q1 operation | Command family |
 | --- | --- |
-| Переключить зуммер | Q |
-| Короткий тест | T |
-| Тест до разряда батареи | TL |
-| Тест на заданное время | Tnn, 1–99 минут |
-| Отменить тест | CT |
-| Отменить shutdown / восстановить выход в поддерживаемом состоянии | C |
-| Отложенно отключить выход | Snn, задержка 1–10 минут; S.n — 12–54 с с шагом 6 |
-| Отключить и запросить возврат выхода | SnnRmmmm / S.nRmmmm, возврат через 3–9999 минут |
+| Toggle buzzer | Q |
+| Short test | T |
+| Test to battery discharge | TL |
+| Timed test | Tnn, 1–99 minutes |
+| Cancel test | CT |
+| Cancel shutdown / restore output in supported state | C |
+| Delayed output shutdown | Snn, delay 1–10 minutes; S.n — 12–54 s with step 6 |
+| Shutdown and request output return | SnnRmmmm / S.nRmmmm, return in 3–9999 minutes |
 
-Возможности и протокол для Inform Sinus EVO, включая то, что ИБП не
-сообщает и что нельзя настроить по RS-232: `docs/SINUS_EVO_RU.md`.
+Inform Sinus EVO capabilities and protocol, including what the UPS does not report and what cannot be configured over RS-232: `docs/SINUS_EVO.md`.
 
-Операции питания требуют дополнительного подтверждения на странице.
-`sent_unconfirmed` означает «команда передана, выполнение не подтверждено».
-Повторов управляющих команд при неизвестном результате нет. Отмена
-shutdown не является гарантированным cold start на любом ИБП.
+Power operations require additional confirmation on the page. `sent_unconfirmed` means "command sent, execution not confirmed". There are no retries of control commands on unknown result. Canceling shutdown is not a guaranteed cold start on any UPS.
 
-Если PoE-коммутатор питается от управляемого выхода, отключение выхода
-может выключить и ESP32. Возврат питания тогда должен обеспечивать сам ИБП
-или независимо питаемый шлюз. Планировщик шлюза не сможет выполнить
-следующую команду, пока сам шлюз обесточен.
+If the PoE switch is powered from a controlled output, output shutdown can turn off the ESP32 itself. Power return must then be provided by the UPS itself or an independently powered gateway. The gateway scheduler cannot execute the next command while the gateway itself is without power.
 
-### Расписания, время и журналы
+### Schedules, time and logs
 
-Страница расписаний поддерживает до восьми правил: однократно по UTC или
-еженедельно в заданном часовом поясе. Время должно быть достоверно, связь с
-ИБП — свежей, а управление и конкретная операция — разрешены. Настроенное
-правило сохраняется вместе с конфигурацией и начинает действовать после
-перезапуска. Перед сохранением показывается отдельный экран проверки.
+The schedules page supports up to eight rules: one-off at UTC or weekly in a given time zone. Time must be reliable, UPS connection fresh, and control and the specific operation permitted. A configured rule is saved together with the configuration and takes effect after a restart. Before saving, a separate verification screen is shown.
 
-Планировщик не выполняет пропущенные команды задним числом. Перед постановкой
-операции в очередь он сохраняет отметку в NVS; при ошибке сохранения команда
-не отправляется. При старте и скачках времени окно выполнения подавляется,
-чтобы не повторять сомнительные операции. Это гарантия отсутствия повторного
-отправления в описанных случаях, а не подтверждение выполнения самим ИБП.
+The scheduler does not execute missed commands retroactively. Before queuing an operation it saves a mark in NVS; on save error the command is not sent. At start and time jumps the execution window is suppressed so as not to repeat questionable operations. This is a no-resend guarantee in the described cases, not confirmation of execution by the UPS itself.
 
-История измерений — кольцо в RAM на 240 записей; при интервале 60 секунд
-это до четырёх часов, после перезапуска она теряется. Журнал событий также
-хранится в отдельном flash-разделе: доступна постраничная выгрузка CSV.
-Недавние события могут оставаться в буфере и потеряться при внезапном отключении;
-состояние накопителя и переполнения показывает интерфейс. Подробности — в
-[PERSISTENT_LOGS_RU.md](docs/PERSISTENT_LOGS_RU.md). Очистка событий не очищает
-очередь SNMP traps. UDP syslog, как и traps, не подтверждает доставку.
+Measurement history is a RAM ring of 240 records; at a 60-second interval up to four hours, after a restart it is lost. The event log is also stored in a separate flash partition: paginated CSV export is available. Recent events may remain in the buffer and be lost on sudden power-off; storage state and overflow are shown by the interface. Event clearing does not clear the SNMP trap queue. UDP syslog, like traps, does not confirm delivery.
 
-Администратор настраивает систему; оператор читает данные и отправляет
-разрешённые команды ИБП; наблюдатель только читает данные. Фоновое обновление
-показаний не продлевает таймаут сессии без действий человека. Все ограничения
-прав проверяются сервером, независимо от видимости кнопок в браузере.
+The administrator configures the system; the operator reads data and sends permitted UPS commands; the observer only reads data. Background reading updates do not extend the session timeout without human action. All permission restrictions are enforced server-side, independently of button visibility in the browser.
 
-## 6. Сборка из исходников
+## 6. Build from sources
 
-Те же `requirements.txt` устанавливают PlatformIO и esptool. Команда:
+The same `requirements.txt` installs PlatformIO and esptool. Command:
 
 ```bash
 python tools/build.py
 ```
 
-Запускайте её Python из venv. Например, в Windows:
+Run it with Python from venv. For example, on Windows:
 
 ```powershell
 .\.venv\Scripts\python.exe tools\build.py
 ```
 
-Скрипт отключает телеметрию PlatformIO, собирает target, проверяет образы
-и обновляет `firmware/` вместе с контрольными суммами. На первой сборке
-потребуется интернет для фиксированных зависимостей.
+The script disables PlatformIO telemetry, builds the target, verifies images and updates `firmware/` together with checksums. On first build internet is required for pinned dependencies.
 
-Зафиксированы PlatformIO Core 6.1.18, espressif32 6.12.0, Arduino ESP32
-2.0.17, ArduinoJson 6.21.5. Web-страница автоматически сжимается и встраивается
-в приложение; `uploadfs` не нужен. Исходник страницы — `web/index.html`.
+PlatformIO Core 6.1.18, espressif32 6.12.0, Arduino ESP32 2.0.17, ArduinoJson 6.21.5 are pinned. The web page is automatically compressed and embedded into the application; `uploadfs` is not needed. Page source — `web/index.html`.
 
-### Упаковка релиза
+### Release packaging
 
-`python tools/build.py` остаётся обычной сборкой и не проходит релизные
-проверки. Если путь ZIP уже занят (в том числе символической ссылкой) или `dist/`
-является символической ссылкой, `python tools/package_release.py` останавливается
-до проверок, ничего не перемещает и не удаляет; старый архив нужно убрать вручную.
-Иначе команда создаёт временный снимок, проверяет образы и выполняет локальные
-проверки снимка. Пока хотя бы одна из них не имеет статуса `PASS`, команда
-возвращает ненулевой код без нового ZIP. При успехе проверенный ZIP публикуется
-без перезаписи существующего файла. Защита охватывает случайные конфликты и
-параллельные упаковщики, но не намеренную подмену `dist/` тем же пользователем во время запуска.
-Диагностика без упаковки:
-`python tools/release_gate.py`. Обхода проверок нет.
+`python tools/build.py` remains a normal build and does not pass release checks. If the ZIP path is already taken (including by a symlink) or `dist/` is a symlink, `python tools/package_release.py` stops before checks, moves nothing and deletes nothing; the old archive must be removed manually. Otherwise the command creates a temporary snapshot, verifies images and performs local snapshot checks. Until at least one of them has status `PASS`, the command returns a nonzero code without a new ZIP. On success the verified ZIP is published without overwriting an existing file. Protection covers accidental conflicts and parallel packagers, but not intentional replacement of `dist/` by the same user during a run. Diagnostics without packaging: `python tools/release_gate.py`. There is no check bypass.
 
-Проверяются исходники проекта в `src/`, `lib/`, `web/`, `tools/`,
-`integration/`, включая заголовки C++, PHP, Arduino `.ino` и JavaScript в
-`web/index.html`. Неизвестные расширения блокируют выпуск. Отпечаток включает
-все файлы ZIP, тесты и конфигурацию gate; старые отчёты не принимаются.
-Вывод содержит команды, версии доступных инструментов, отпечатки и статусы.
-Изменение снимка во время проверок блокирует упаковку; последующие изменения
-рабочего дерева в архив не попадают. Архив точно соответствует проверенному снимку,
-но снимок не гарантированно отражает один момент одновременно редактируемого дерева.
-Изменение кода после сборки прошивки
-также требует повторной сборки: совпадение исходников с уже собранным образом
-этим отпечатком не подтверждается.
+Project sources in `src/`, `lib/`, `web/`, `tools/`, `integration/` are checked, including C++ headers, PHP, Arduino `.ino` and JavaScript in `web/index.html`. Unknown extensions block release. The fingerprint includes all ZIP files, tests and gate configuration; old reports are not accepted. Output contains commands, versions of available tools, fingerprints and statuses. Snapshot modification during checks blocks packaging; subsequent working tree changes do not get into the archive. The archive exactly matches the verified snapshot, but the snapshot is not guaranteed to reflect a single moment of a tree being edited simultaneously. Code changes after building firmware also require rebuilding: source matching an already built image is not confirmed by this fingerprint.
 
-Semgrep использует только локальные правила `tools/semgrep-release.yml`, без
-облачного набора и телеметрии; любое совпадение блокирует релиз. Это небольшой
-базовый набор для небезопасного копирования C, shell-вызовов Python,
-динамического исполнения JavaScript и вызовов исполнения кода/оболочки PHP,
-**не полная проверка безопасности**.
-Trivy локально сканирует исходники и `requirements.txt`; любая уязвимость,
-секрет, ошибка конфигурации или находка по лицензии блокирует релиз. Список
-обнаруженных пакетов должен точно совпадать с закреплёнными зависимостями.
-Gate ставит каталог собственного интерпретатора первым в PATH дочерних процессов.
-Любая запись о лицензии считается находкой и вызывает `FAIL`; отсутствие записей
-означает, что данные о лицензиях не подтверждены, и вызывает `BLOCKED`. Поэтому
-при текущем правиле Trivy gate не может получить `PASS`, пока `requirements.txt`
-содержит закреплённые пакеты, до определения владельцем допустимых лицензий и
-покрытия зависимостей PlatformIO, которые Trivy сейчас не распознаёт.
-Trivy может скачать базу уязвимостей, исходники и результаты не отправляются.
-Отсутствующая база, таймаут, ошибка или неполный отчёт блокируют релиз.
+Semgrep uses only local rules `tools/semgrep-release.yml`, without a cloud rule set and telemetry; any match blocks release. This is a small baseline set for unsafe C copying, Python shell calls, dynamic JavaScript execution and PHP code/shell execution calls — **not a full security check**. Trivy locally scans sources and `requirements.txt`; any vulnerability, secret, configuration error or license finding blocks release. The detected package list must exactly match pinned dependencies. Gate places its own interpreter directory first in the PATH of child processes. Any license entry is considered a finding and causes `FAIL`; absence of entries means license data is not confirmed and causes `BLOCKED`. Therefore under the current rule Trivy gate cannot obtain `PASS` while `requirements.txt` contains pinned packages, until the owner defines allowed licenses and dependency coverage for PlatformIO, which Trivy currently does not recognize. Trivy may download a vulnerability database; sources and results are not sent. Missing database, timeout, error or incomplete report blocks release.
 
-Требуется 100% исполняемых строк и ветвей по целочисленным счётчикам каждого
-собственного файла, CRAP строго меньше 10, отсутствие неподтверждённых
-дубликатов со сходством от 0,8 и отсутствие выживших/непокрытых мутаций при
-ненулевом числе выполненных мутаций. Установленные Crapper, Dryer и Mutator
-не поддерживают собственные C/C++ и встроенный HTML/JS; доступные тестовые
-раннеры также не предоставляют полное покрытие этих файлов. Поэтому сейчас
-эти проверки честно возвращают `BLOCKED`, и релизный ZIP не создаётся.
-Частичные Python-проверки не являются доказательством качества прошивки или
-проверкой реального оборудования.
+100% of executable lines and branches by integer counters of each own file is required, CRAP strictly less than 10, no unconfirmed duplicates with similarity from 0.8, and no surviving/uncovered mutations at a nonzero number of executed mutations. Installed Crapper, Dryer and Mutator do not support own C/C++ and embedded HTML/JS; available test runners also do not provide full coverage of these files. Therefore these checks currently honestly return `BLOCKED`, and a release ZIP is not created. Partial Python checks are not evidence of firmware quality or real hardware testing.
 
-## 7. Обновление с сохранением конфигурации
+## 7. Update preserving configuration
 
-При переходе с 0.1.0 конфигурация схемы 1 читается и дополняется полями
-схемы 2 в памяти. Пароли, community и остальные прежние значения
-сохраняются. Само чтение не перезаписывает blob; новая схема записывается
-при явном сохранении. Понижение версии после записи схемы 2 не поддерживается
-старой прошивкой: сначала используйте сделанную перед обновлением raw-копию.
+When transitioning from 0.1.0, schema 1 configuration is read and supplemented with schema 2 fields in memory. Passwords, communities and other old values are preserved. The read itself does not overwrite the blob; the new schema is written on explicit save. Downgrade after writing schema 2 is not supported by old firmware: first use the raw copy made before updating.
 
-После получения новой версии пакета или выполнения `tools/build.py` выполните
-однократный переход по USB со старой таблицы `factory`:
+After receiving a new package version or running `tools/build.py`, perform a one-time USB transition from the old `factory` table:
 
 ```bash
 python tools/flash.py --port /dev/ttyUSB0 migrate
 ```
 
-Для последующих обновлений по USB используйте:
+For subsequent USB updates use:
 
 ```bash
 python tools/flash.py --port /dev/ttyUSB0 update
 ```
 
-На Windows укажите `--port COM5`. `migrate` принимает только точную прежнюю
-таблицу; `update` — только новую OTA-таблицу. Неизвестная таблица отклоняется.
-Обе команды сохраняют raw-копию `appcfg` в `backups/`, сравнивают SHA-256 до и
-после, записывают приложение в `ota_0` и только после успешной записи стирают
-`otadata`, чтобы загрузилось именно новое приложение. `migrate` дополнительно
-записывает загрузчик и затем таблицу; `update` их не меняет. Подробности о
-восстановлении после прерывания и веб-обновлении — в [OTA_RU.md](docs/OTA_RU.md).
+On Windows specify `--port COM5`. `migrate` accepts only the exact previous table; `update` — only the new OTA table. An unknown table is rejected. Both commands save a raw `appcfg` copy in `backups/`, compare SHA-256 before and after, write the application to `ota_0` and only after successful write erase `otadata` so that the new application loads. `migrate` additionally writes the bootloader and then the table; `update` does not change them. Details on recovery after interruption and web update — in `docs/OTA.md`.
 
-| Раздел | Адрес | Размер | Назначение |
+| Section | Address | Size | Purpose |
 | --- | --- | --- | --- |
-| nvs | 0x9000 | 20 КиБ | Системные параметры ESP32 |
-| otadata | 0xE000 | 8 КиБ | Выбор OTA-слота |
-| ota_0 | 0x10000 | 4032 КиБ | Первый слот приложения |
-| ota_1 | 0x400000 | 4032 КиБ | Второй слот приложения |
-| logs | 0x7F0000 | 1024 КиБ | Raw-кольцо постоянного журнала событий |
-| appcfg | 0xF00000 | 64 КиБ | Конфигурация шлюза |
+| nvs | 0x9000 | 20 KiB | ESP32 system parameters |
+| otadata | 0xE000 | 8 KiB | OTA slot selection |
+| ota_0 | 0x10000 | 4032 KiB | First application slot |
+| ota_1 | 0x400000 | 4032 KiB | Second application slot |
+| logs | 0x7F0000 | 1024 KiB | Raw ring of persistent event log |
+| appcfg | 0xF00000 | 64 KiB | Gateway configuration |
 
-`logs` не является файловой системой: он содержит постоянный журнал событий;
-история измерений остаётся в RAM. Адрес и размер `appcfg` являются контрактом
-обновления — не переносите их в новой версии.
-Обычные `install`, `update` и `migrate` не записывают и не стирают `logs`.
+`logs` is not a filesystem: it contains a persistent event log; measurement history remains in RAM. `logs` address and size are an update contract — do not move them in a new version. Ordinary `install`, `update` and `migrate` do not write or erase `logs`.
 
-Нельзя гарантировать сохранение настроек при `erase_flash`, чужой полной
-прошивке 16 MB, переносе appcfg или физической неисправности flash. Полное
-стирание штатный скрипт выполняет только явной командой `erase`; остальные
-перечисленные случаи скрипт не выполняет. Не используйте объединённый образ
-с заполнением области appcfg: в комплекте специально находятся отдельные
-образы. При неизвестной версии/повреждении NVS прошивка не стирает её;
-веб показывает ошибку, запись конфигурации блокируется.
+Settings preservation cannot be guaranteed with `erase_flash`, another full 16 MB firmware, appcfg transfer or physical flash failure. The standard script performs full erase only with the explicit `erase` command; the script does not perform the other listed cases. Do not use a combined image with appcfg area filling: the package intentionally contains separate images. On unknown version/NVS corruption the firmware does not erase it; web shows an error, configuration write is blocked.
 
-Резервная копия отдельно:
+Backup separately:
 
 ```bash
 python tools/flash.py --port /dev/ttyUSB0 backup-config --file my-appcfg.bin
 ```
 
-Восстановление явно заменяет только область appcfg:
+Restore explicitly replaces only the appcfg area:
 
 ```bash
 python tools/flash.py --port /dev/ttyUSB0 restore-config --file my-appcfg.bin --confirm RESTORE_CONFIG
 ```
 
-Полное стирание уничтожает оба слота прошивки, `otadata`, `logs`, `nvs` и `appcfg` (все настройки, пароли и community); автоматическая копия не создаётся, поэтому при необходимости сначала выполните `backup-config`.
+Full erase destroys both firmware slots, `otadata`, `logs`, `nvs` and `appcfg` (all settings, passwords and communities); no automatic copy is created, so if needed run `backup-config` first.
 
 ```bash
 python tools/flash.py --port /dev/ttyUSB0 erase --confirm ERASE_FLASH
 ```
 
-После стирания необходимо выполнить `install`.
+After erasing you must run `install`.
 
-Raw-копии и JSON-экспорт содержат пароли/community; храните их приватно.
-Обычное чтение настроек через API возвращает секреты пустыми строками;
-пустая строка при сохранении означает «оставить прежний секрет».
+Raw copies and JSON export contain passwords/communities; keep them private. Normal settings reading via API returns secrets as empty strings; an empty string on save means "keep the previous secret".
 
-## 8. Модульность и проверка
+## 8. Modularity and verification
 
-| Каталог / модуль | Ответственность |
+| Directory / module | Responsibility |
 | --- | --- |
-| lib/UpsCore | Общая модель состояния, интерфейс драйвера, MegaTec Q1, реестр |
-| src/ups_service.* | Единственный владелец UART, опрос, очередь команд |
-| lib/SnmpCore | Ограниченный BER и SNMPv2c без зависимости от Arduino |
-| lib/GatewayCore | Конфигурация/валидация, события, адаптер PowerNet |
-| src/snmp_service.* | UDP и очередь traps |
-| src/config_store.* | Хранение в отдельной NVS |
-| lib/GatewayCore/src/auth_core.* | Сессии, роли, CSRF, маршруты, разбор HTTP-параметров |
-| lib/GatewayCore/src/management_core.* | История, тревоги, решения планировщика, формат syslog |
-| src/management_service.* | NTP, NVS-журнал расписаний, отдельная задача syslog |
-| src/web_service.* | HTTP API, обработчики, авторизация и ограничения тела запроса |
-| web/index.html | Веб-интерфейс |
+| lib/UpsCore | Common state model, driver interface, MegaTec Q1, registry |
+| src/ups_service.* | Single UART owner, polling, command queue |
+| lib/SnmpCore | Limited BER and SNMPv2c without Arduino dependency |
+| lib/GatewayCore | Configuration/validation, events, PowerNet adapter |
+| src/snmp_service.* | UDP and trap queue |
+| src/config_store.* | Storage in separate NVS |
+| lib/GatewayCore/src/auth_core.* | Sessions, roles, CSRF, routes, HTTP parameter parsing |
+| lib/GatewayCore/src/management_core.* | History, alarms, scheduler decisions, syslog format |
+| src/management_service.* | NTP, NVS schedule log, separate syslog task |
+| src/web_service.* | HTTP API, handlers, authorization and request body limits |
+| web/index.html | Web interface |
 
-Другой ИБП добавляется новым `UpsDriver` и строкой регистрации. Драйвер
-задаёт запросы, парсер, границы кадров, parity/stop bits и возможности
-управления. SNMP и веб продолжают читать общую модель. Подробный порядок
-и ограничения модели — `docs/DRIVERS.md`.
+Another UPS is added by a new `UpsDriver` and registration line. The driver sets requests, parser, frame boundaries, parity/stop bits and control capabilities. SNMP and web continue reading the shared model. Detailed procedure and model limitations — `docs/DRIVERS.md`.
 
-Тесты на компьютере с g++, Node.js 18+ для проверки JavaScript и установленными зависимостями:
+Computer tests with g++, Node.js 18+ for JavaScript verification and installed dependencies:
 
 ```bash
 python tools/test_host.py
@@ -462,8 +284,7 @@ python tools/test_event_bus.py
 node tests/ui_fixture_contract_check.js
 ```
 
-Отдельная проверка хранилища использует тестовые реализации NVS, генератора
-случайных данных и JSON; реальную плату и её оборудование она не проверяет:
+Separate storage verification uses test NVS, random data generator and JSON implementations; it does not test the real board and its equipment:
 
 ```bash
 g++ -std=c++17 -Wall -Wextra -Wpedantic -Werror -O1 -g \
@@ -473,7 +294,7 @@ g++ -std=c++17 -Wall -Wextra -Wpedantic -Werror -O1 -g \
   /tmp/esp32-ups-gateway-test-config-store
 ```
 
-При поддержке sanitizer:
+With sanitizer support:
 
 ```bash
 ASAN_OPTIONS=detect_leaks=0 python tools/test_host.py --sanitize
@@ -481,31 +302,22 @@ ASAN_OPTIONS=detect_leaks=0 python tests/http_adapter/run.py --sanitize
 ASAN_OPTIONS=detect_leaks=0 python tools/test_event_bus.py --sanitize
 ```
 
-Отключение LeakSanitizer относится к среде с ptrace, где выполнена проверка;
-ASan/UBSan остаются включёнными. На своём компьютере можно проверять утечки
-без этой переменной. Исторический отчёт исходной сборки и краткое текущее
-состояние находятся в `docs/BUILD_REPORT.md`.
+LeakSanitizer disable relates to an environment with ptrace where verification was performed; ASan/UBSan remain enabled. On your own computer you can check for leaks without this variable. Historical report of the original build and brief current state are in `docs/BUILD_REPORT.md`.
 
-После установки обязательно проверьте реальную связь, совпадение показаний,
-получение traps, появление датчиков Observium и сохранение настроек после
-одного штатного обновления. Это аппаратные проверки; успешная сборка их
-не заменяет.
+After installation be sure to verify real connection, matching readings, trap reception, Observium sensors appearing and settings preservation after one normal update. These are hardware checks; a successful build does not replace them.
 
-## 9. Предпросмотр нового интерфейса
+## 9. New interface preview
 
-Для локального просмотра без ESP32 откройте `tests/ui_fixture.html` в своём
-браузере. Это отдельная тестовая оболочка, использующая тот же код интерфейса
-из `web/index.html`. Верхняя полоса явно помечает синтетические данные;
-кнопки позволяют проверить обычную/высокую нагрузку, потерю связи, ошибку
-HTTP и завершение сессии. `Fill Login` заполняет только тестовые реквизиты.
-Этот файл не встроен в прошивку и не посылает команды устройству.
+For local preview without ESP32 open `tests/ui_fixture.html` in your browser. This is a separate test shell using the same interface code from `web/index.html`. The top bar explicitly marks synthetic data; buttons allow checking normal/high load, connection loss, HTTP error and session end. `Fill Login` fills only test credentials. This file is not embedded in firmware and does not send commands to the device.
 
-Пересоздание после изменения UI:
+Recreating after UI change:
 
 ```bash
 python tools/make_ui_fixture.py
 ```
 
-Объём фактически выполненной проверки, в том числе наличие или отсутствие
-браузерного рендера, фиксируется в `docs/BUILD_REPORT.md`. Наличие тестового
-HTML само по себе не означает, что интерфейс проверен скриншотами.
+The volume of actual verification performed, including presence or absence of browser rendering, is recorded in `docs/BUILD_REPORT.md`. The presence of the test HTML itself does not mean the interface is verified with screenshots.
+
+## License
+
+The project is licensed under the GNU General Public License v2.0 or (at your option) any later version (SPDX: GPL-2.0-or-later), see LICENSE; third-party components keep their own licenses, see THIRD_PARTY.md.

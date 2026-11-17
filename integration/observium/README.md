@@ -1,21 +1,21 @@
-# Подключение к Observium CE
+# Connecting to Observium CE
 
-В комплекте: локальный профиль обнаружения, пример приёмника `snmptrapd` и необязательный адаптер уведомлений в syslog. Это подготовленные файлы интеграции; они **не устанавливались и не проверялись на вашем сервере Observium CE**. Полная версия вашей CE неизвестна. Пути ниже предполагают установку в `/opt/observium`.
+Included: a local discovery profile, an example `snmptrapd` receiver and an optional notification-to-syslog adapter. These are prepared integration files; they **have not been installed or verified on your Observium CE server**. The full version of your CE is unknown. The paths below assume installation into `/opt/observium`.
 
-## 1. SNMP-опрос и обнаружение
+## 1. SNMP polling and discovery
 
-Прошивка отвечает по SNMPv2c, UDP/161, и выдаёт подмножество APC PowerNet-MIB. `sysDescr.0` начинается с `ESP32 UPS Gateway/`. `sysObjectID.0` намеренно равен `0.0` (`zeroDotZero`): у проекта нет назначенного собственного enterprise/model OID, и он не объявляет себя конкретной моделью APC. Поэтому профиль определяется по описанию.
+The firmware answers SNMPv2c, UDP/161, and exposes a subset of the APC PowerNet-MIB. `sysDescr.0` begins with `ESP32 UPS Gateway/`. `sysObjectID.0` is deliberately `0.0` (`zeroDotZero`): the project has no assigned own enterprise/model OID and does not declare itself a specific APC model. Therefore the profile is determined by the description.
 
-[Официальный справочник Observium](https://docs.observium.org/developing/definitions/) размещает OS definitions в `includes/definitions/os/*.inc.php`. Скопируйте поставляемый файл:
+The [official Observium reference](https://docs.observium.org/developing/definitions/) places OS definitions in `includes/definitions/os/*.inc.php`. Copy the supplied file:
 
 ```sh
 sudo install -m 0644 integration/observium/esp32ups.inc.php /opt/observium/includes/definitions/os/esp32ups.inc.php
 php -l /opt/observium/includes/definitions/os/esp32ups.inc.php
 ```
 
-Файл задаёт type `power`, регулярное выражение `/^ESP32 UPS Gateway\//` и список MIB с `PowerNet-MIB`, согласно [описанию OS detection](https://docs.observium.org/developing/add_os/). Отдельный `require` в `config.php` при таком размещении не нужен. Сохраните копию локального определения при обновлении/переустановке Observium.
+The file sets type `power`, the regular expression `/^ESP32 UPS Gateway\//` and a MIB list including `PowerNet-MIB`, per the [OS detection description](https://docs.observium.org/developing/add_os/). A separate `require` in `config.php` is not needed with this placement. Keep a copy of the local definition when updating/reinstalling Observium.
 
-В веб-интерфейсе шлюза задайте SNMP community и, при необходимости, IPv4 единственного разрешённого poller. Добавьте устройство в Observium с SNMPv2c и тем же community. DHCP-адрес лучше закрепить резервацией. Для диагностики, заменив все заглушки:
+In the gateway web interface set the SNMP community and, if necessary, the IPv4 of the single allowed poller. Add the device in Observium with SNMPv2c and the same community. The DHCP address is best fixed with a reservation. For diagnostics, replacing all placeholders:
 
 ```sh
 snmpget -v2c -c 'REPLACE_READ_COMMUNITY' REPLACE_GATEWAY_IPV4 .1.3.6.1.2.1.1.1.0 .1.3.6.1.2.1.1.2.0
@@ -26,19 +26,19 @@ cd /opt/observium
 ./poller.php -h REPLACE_DEVICE_ID -d
 ```
 
-Ожидаемые признаки: OS `esp32-ups-gateway`, подключённый PowerNet-MIB, реальные напряжения/нагрузка/входная частота/температура и состояния связи/питания. Сначала добейтесь корректного Q1-обмена: до него измерительные OID отсутствуют. Какие из поддержанных объектов ваша CE превращает в датчики, проверяется выводом discovery; при несовпадении потребуется адаптация локального определения/датчиков к установленной версии.
+Expected signs: OS `esp32-ups-gateway`, PowerNet-MIB connected, real voltages/load/input frequency/temperature and link/power states. First achieve correct Q1 exchange: before it the measurement OIDs are absent. Which of the supported objects your CE turns into sensors is checked by discovery output; in case of mismatch the local definition/sensors will need adapting to the installed version.
 
-Базовый Q1 не сообщает заряд в процентах, runtime и измеренную выходную частоту. Их отсутствие ожидаемо. Напряжение батарейной цепочки появляется после подтверждения `battery_multiplier`. Температурные PowerNet-объекты с историческим именем `upsAdvBatteryTemperature` описывают внутреннюю температуру UPS; это не объявление отдельного датчика батареи. При потере RS232 связь SNMP со шлюзом остаётся доступной, `upsCommStatus` сообщает отсутствие связи, устаревшие измерения не выдаются как свежие.
+Base Q1 does not report charge in percent, runtime and measured output frequency. Their absence is expected. Battery string voltage appears after confirming `battery_multiplier`. Temperature PowerNet objects with the historical name `upsAdvBatteryTemperature` describe the internal UPS temperature; this is not a declaration of a separate battery sensor. On RS232 loss SNMP communication with the gateway stays available, `upsCommStatus` reports the absence of a link, stale measurements are not issued as fresh.
 
-## 2. Приём traps
+## 2. Receiving traps
 
-Эта версия прошивки отправляет **SNMPv2c TRAP**, без подтверждения доставки, двум настраиваемым получателям. INFORM, v1 и v3 отправителем не реализованы. Для приёма установите пакет Net-SNMP `snmptrapd` способом, принятым в вашей ОС.
+This firmware version sends **SNMPv2c TRAP**, without delivery confirmation, to two configurable receivers. INFORM, v1 and v3 sending are not implemented. To receive, install the Net-SNMP `snmptrapd` package the way accepted in your OS.
 
-Настройте получателя в веб-интерфейсе ESP32: адрес сервера, UDP-порт 162, отдельный trap community, enabled. Разрешите входящий UDP/162 на сервере только от адреса шлюза. Политика SNMP-опроса UDP/161 на ESP32 настраивается отдельно.
+Configure the receiver in the ESP32 web interface: server address, UDP port 162, a separate trap community, enabled. Allow incoming UDP/162 on the server only from the gateway address. The SNMP polling policy UDP/161 on ESP32 is configured separately.
 
-В `snmptrapd.conf.example` замените `REPLACE_RECEIVER_IPV4`, `REPLACE_GATEWAY_IPV4` и `REPLACE_TRAP_COMMUNITY`. Не используйте `disableAuthorization yes`. Директива `authCommunity log,execute` ограничена конкретным источником. Она технически допускает v1/v2c в самом Net-SNMP; формат stdin обработчика преобразуется в v2 и не позволяет достоверно определить исходную версию. Здесь поддерживается поток, создаваемый нашим v2c-отправителем, а не обещается фильтрация версии этим примером.
+In `snmptrapd.conf.example` replace `REPLACE_RECEIVER_IPV4`, `REPLACE_GATEWAY_IPV4` and `REPLACE_TRAP_COMMUNITY`. Do not use `disableAuthorization yes`. The `authCommunity log,execute` directive is limited to a specific source. It technically allows v1/v2c at the Net-SNMP level; the handler stdin format is converted to v2 and does not allow reliably determining the original version. Here the stream created by our v2c sender is supported, not version filtering promised by this example.
 
-Установка обработчика и пробный запуск приёмника после подготовки конфигурации:
+Installing the handler and a trial run of the receiver after preparing the configuration:
 
 ```sh
 sudo install -d -m 0755 /usr/local/lib/esp32-ups
@@ -47,9 +47,9 @@ sudo install -m 0600 integration/observium/snmptrapd.conf.example /etc/snmp/esp3
 sudo snmptrapd -f -Lo -n -On -C -c /etc/snmp/esp32-ups-trapd.conf
 ```
 
-Не запускайте второй экземпляр на уже занятом UDP/162. После проверки перенесите параметры в сервис вашей ОС; универсальный unit-файл не подменяет существующую конфигурацию. `-On` / `outputOption n` обязательны: обработчик ожидает числовые OID, без зависимости от локального набора MIB. `-n` отключает reverse DNS. Python-код не использует shell/eval и передаёт текст только локальному syslog; файлы служебной конфигурации должны принадлежать администратору и быть недоступны для изменения процессу-получателю.
+Do not run a second instance on an already occupied UDP/162. After checking, move the parameters into your OS service; a universal unit file does not replace the existing configuration. `-On` / `outputOption n` are required: the handler expects numeric OIDs, independent of the local MIB set. `-n` disables reverse DNS. The Python code does not use shell/eval and passes text only to the local syslog; service configuration files must belong to the administrator and be inaccessible to the receiving process.
 
-| Уведомление | Числовой OID |
+| Notification | Numeric OID |
 |---|---|
 | communicationLost | 1.3.6.1.4.1.318.0.1 |
 | upsOnBattery | 1.3.6.1.4.1.318.0.5 |
@@ -57,47 +57,47 @@ sudo snmptrapd -f -Lo -n -On -C -c /etc/snmp/esp32-ups-trapd.conf
 | communicationEstablished | 1.3.6.1.4.1.318.0.8 |
 | powerRestored | 1.3.6.1.4.1.318.0.9 |
 | returnFromLowBattery | 1.3.6.1.4.1.318.0.11 |
-| Запуск шлюза / кнопка проверки канала | 1.3.6.1.6.3.1.1.5.1, coldStart |
+| Gateway startup / channel test button | 1.3.6.1.6.3.1.1.5.1, coldStart |
 
-У тестового уведомления аргумент `mtrapargsString.0` (`1.3.6.1.4.1.318.2.3.3.0`) начинается с `TEST TRAP:`. Адаптер обозначает его `testNotification`, чтобы проверка канала не выглядела настоящей перезагрузкой. В аргументе также передаются boot id, последовательность и uptime исходного события. Общая неисправность UPS и завершение самотеста остаются в локальном журнале прошивки; результат самотеста Q1 не сообщает.
+The test notification argument `mtrapargsString.0` (`1.3.6.1.4.1.318.2.3.3.0`) begins with `TEST TRAP:`. The adapter marks it `testNotification` so a channel check does not look like a real restart. The argument also carries the boot id, sequence and uptime of the original event. A general UPS fault and selftest completion remain in the local firmware log; the selftest result is not reported by Q1.
 
-## 3. Необязательно: события в syslog Observium
+## 3. Optional: events in Observium syslog
 
-Путь: ESP32 → snmptrapd → `trap_to_syslog.py` → `127.0.0.1:514` → rsyslog → `syslog.php`.
+Path: ESP32 → snmptrapd → `trap_to_syslog.py` → `127.0.0.1:514` → rsyslog → `syslog.php`.
 
-Адаптер берёт адрес источника из второй строки transport, проверяет строгий IPv4 и allowlist, затем помещает IP шлюза в HOSTNAME заголовка RFC3164. Первая строка reverse DNS игнорируется. Лимиты: stdin 16 KiB, 128 строк, 2048 байт/строка; исходящий syslog ≤1024 байт. Неизвестные OID, дубликаты обязательных полей, некорректный источник и управляющие символы отклоняются.
+The adapter takes the source address from the second line of transport, checks strict IPv4 and the allowlist, then places the gateway IP in the RFC3164 HOSTNAME header. The first line of reverse DNS is ignored. Limits: stdin 16 KiB, 128 lines, 2048 bytes/line; outgoing syslog ≤1024 bytes. Unknown OIDs, duplicates of required fields, an invalid source and control characters are rejected.
 
-**В шаблоне rsyslog для этого локального пути используйте `%hostname%`, а не `%fromhost%` или `%fromhost-ip%`.** Последние здесь означают локальный сервер 127.0.0.1. Пример `rsyslog-esp32-ups.conf.example` использует `%hostname%` и допускает только локальный транспорт, нужный program name и явно заданный IP шлюза.
+**In the rsyslog template for this local path use `%hostname%`, not `%fromhost%` or `%fromhost-ip%`.** The latter two here mean the local server 127.0.0.1. The `rsyslog-esp32-ups.conf.example` example uses `%hostname%` and allows only the local transport, the needed program name and the explicitly given gateway IP.
 
-Пример предназначен для сервера без существующего UDP/514 listener. Если порт уже обслуживается, не создавайте конфликтующий listener и не загружайте модули повторно: добавьте этот шаблон и фильтр в соответствующий ruleset существующего входа. Альтернатива — выделить другой loopback-порт и одинаково изменить его в input и аргументе `--syslog-port` обработчика.
+The example is intended for a server without an existing UDP/514 listener. If the port is already served, do not create a conflicting listener and do not reload modules: add this template and filter to the corresponding ruleset of the existing input. An alternative is to allocate another loopback port and equally change it in the input and the handler `--syslog-port` argument.
 
-В Observium `config.php` включите syslog:
+In Observium enable syslog in `config.php`:
 
 ```php
 $config['enable_syslog'] = 1;
 ```
 
-Если gateway IP не сопоставился с устройством, задайте адресное соответствие его реальному device id, например для **документационного адреса** и условного id 123:
+If the gateway IP did not map to the device, set the address correspondence to its real device id, for example for the **documentation address** and a conditional id 123:
 
 ```php
 $config['syslog']['host_map']['192.0.2.50'] = 123;
 ```
 
-Не подставляйте 123 без проверки. После изменения rsyslog проверьте `rsyslogd -N1`, права на запуск `/opt/observium/syslog.php`, ограничения службы/AppArmor и затем примените конфигурацию штатным перезапуском сервиса. Не отключайте ограничения всей системы только ради этого примера. Подробнее: [официальная syslog-интеграция](https://docs.observium.org/syslog/).
+Do not substitute 123 without checking. After changing rsyslog check `rsyslogd -N1`, the rights to run `/opt/observium/syslog.php`, service/AppArmor restrictions and then apply the configuration with a normal service restart. Do not disable system-wide restrictions just for this example. More: [official syslog integration](https://docs.observium.org/syslog/).
 
-Время RFC3164 — локальное время приёмника. Время события со стороны ESP32 остаётся uptime в varbind/сообщении; адаптер не выдаёт его за абсолютное UTC-время. UDP-доставка в обоих участках не подтверждается. `sent` в счётчике ESP32 означает передачу датаграммы в сетевой стек, не появление строки в Observium.
+RFC3164 time is the receiver's local time. The event time from the ESP32 side remains uptime in the varbind/message; the adapter does not issue it as absolute UTC time. UDP delivery in both segments is not confirmed. `sent` in the ESP32 counter means handing the datagram to the network stack, not the appearance of a line in Observium.
 
-Syslog Alerting в [документации Observium](https://docs.observium.org/alerting_syslog/) обозначен как Subscription-only. Отображение журнала в CE не обещает email/webhook-оповещения. Отдельный внешний notifier в комплект не входит.
+Syslog Alerting in the [Observium documentation](https://docs.observium.org/alerting_syslog/) is marked Subscription-only. Displaying the log in CE does not promise email/webhook notifications. A separate external notifier is not included.
 
-## 4. Проверка без сети и стендовая приёмка
+## 4. Verification without network and bench acceptance
 
-Синтетический файл использует адреса TEST-NET, реальных событий ИБП в нём нет:
+The synthetic file uses TEST-NET addresses, there are no real UPS events in it:
 
 ```sh
 python3 integration/observium/trap_to_syslog.py --allow-source 192.0.2.50 --dry-run < integration/observium/example-trap.txt
 python3 -m unittest discover -s tests -p test_trap_adapter.py -v
 ```
 
-Эти команды не отправляют UDP. После настройки сервера нажмите тест trap в веб-интерфейсе и проверьте сначала приёмник, затем syslog именно карточки шлюза. Далее проверьте обрыв/восстановление RS232 и переход на батарею по принятой у вас стендовой процедуре. Не создавайте low-battery разряд критической нагрузки ради проверки канала.
+These commands do not send UDP. After setting up the server press the test trap in the web interface and check first the receiver, then the syslog of the gateway card specifically. Then check RS232 break/restoration and transition to battery according to your bench procedure. Do not create a low-battery discharge of critical load just to check the channel.
 
-Формат stdin/traphandle и авторизация: [официальный snmptrapd.conf](https://www.net-snmp.org/docs/man/snmptrapd.conf.html). Скрипт рассчитан на современную вторую строку `UDP: [IPv4]:port->[IPv4]:port`; старый Net-SNMP, печатающий только IP, будет отклонён с диагностикой до явной адаптации парсера.
+The stdin/traphandle format and authorization: [official snmptrapd.conf](https://www.net-snmp.org/docs/man/snmptrapd.conf.html). The script is designed for a modern second line `UDP: [IPv4]:port->[IPv4]:port`; old Net-SNMP, printing only the IP, will be rejected with diagnostics until explicit parser adaptation.
