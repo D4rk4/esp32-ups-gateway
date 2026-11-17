@@ -1,105 +1,106 @@
-# Реализованный SNMP-интерфейс
+# Implemented SNMP interface
 
-SNMPv2c, UDP 161. GET, GETNEXT и GETBULK поддерживаются. SET принимается
-только с отдельной Write Community и только для объектов управления ИБП
-(см. «Управление ИБП по SNMP»); с Read Community SET возвращает
-`notWritable`. Максимум UDP-пакета 1400 байт, входных varbind 32, выходных 64.
-Большой GETBULK сокращается до помещающегося упорядоченного префикса. Большой
-обычный GET/GETNEXT получает `tooBig`.
+SNMPv2c, UDP 161. GET, GETNEXT and GETBULK are supported. SET is accepted only
+with a separate Write Community and only for UPS management objects
+(see "UPS management over SNMP"); with Read Community SET returns
+`notWritable`. Maximum UDP packet 1400 bytes, input varbinds 32, output 64.
+A large GETBULK is shortened to the fitting ordered prefix. A large ordinary
+GET/GETNEXT receives `tooBig`.
 
-## Идентификация шлюза
+## Gateway identification
 
-| OID | Имя | Тип / значение |
+| OID | Name | Type / value |
 | --- | --- | --- |
 | 1.3.6.1.2.1.1.1.0 | sysDescr | `ESP32 UPS Gateway/0.2.0; driver=...; PowerNet subset` |
-| 1.3.6.1.2.1.1.2.0 | sysObjectID | OBJECT IDENTIFIER `0.0`, идентификатор производителя пока не назначен |
-| 1.3.6.1.2.1.1.3.0 | sysUpTime | TimeTicks, сотые секунды от запуска |
-| 1.3.6.1.2.1.1.4.0 | sysContact | Строка из конфигурации |
-| 1.3.6.1.2.1.1.5.0 | sysName | Имя шлюза |
-| 1.3.6.1.2.1.1.6.0 | sysLocation | Расположение |
+| 1.3.6.1.2.1.1.2.0 | sysObjectID | OBJECT IDENTIFIER `0.0`, vendor identifier not yet assigned |
+| 1.3.6.1.2.1.1.3.0 | sysUpTime | TimeTicks, hundredths of a second since startup |
+| 1.3.6.1.2.1.1.4.0 | sysContact | String from configuration |
+| 1.3.6.1.2.1.1.5.0 | sysName | Gateway name |
+| 1.3.6.1.2.1.1.6.0 | sysLocation | Location |
 | 1.3.6.1.2.1.1.7.0 | sysServices | INTEGER 72 |
 
-Для Observium используйте приложенное определение по `sysDescr`. Наличие
-APC OID не означает, что шлюз является конкретной моделью APC.
+For Observium use the attached definition by `sysDescr`. Presence of an APC
+OID does not mean that the gateway is a specific APC model.
 
 ## PowerNet
 
-К каждому суффиксу ниже добавляется префикс `1.3.6.1.4.1.318.1.1.1.`.
+Add the prefix `1.3.6.1.4.1.318.1.1.1.` to each suffix below.
 
-| Суффикс с .0 | Объект | Тип | Единица / условие |
+| Suffix with .0 | Object | Type | Unit / condition |
 | --- | --- | --- | --- |
-| 1.1.1.0 | upsBasicIdentModel | OCTET STRING | Модель из I; иначе обозначение драйвера |
-| 1.1.2.0 | upsBasicIdentName | OCTET STRING | Имя шлюза |
-| 1.2.1.0 | upsAdvIdentFirmwareRevision | OCTET STRING | Версия ИБП из I, если получена |
-| 1.2.3.0 | upsAdvIdentSerialNumber | OCTET STRING | Только если драйвер предоставит серийный номер |
-| 8.1.0 | upsCommStatus | INTEGER | 1 связь есть; 2 связи нет |
-| 2.1.1.0 | upsBasicBatteryStatus | INTEGER | 1 неизвестно; 2 нет признака low battery; 3 low battery |
-| 4.1.1.0 | upsBasicOutputStatus | INTEGER | 1 неизвестно; 2 online; 3 battery; 9 bypass; 15 тест |
-| 3.2.1.0 | upsAdvInputLineVoltage | Gauge32 | Вольты |
-| 3.3.1.0 | upsHighPrecInputLineVoltage | Gauge32 | Десятые доли вольта |
-| 3.2.4.0 | upsAdvInputFrequency | Gauge32 | Герцы |
-| 3.3.4.0 | upsHighPrecInputFrequency | Gauge32 | Десятые доли герца |
-| 4.2.1.0 | upsAdvOutputVoltage | Gauge32 | Вольты |
-| 4.3.1.0 | upsHighPrecOutputVoltage | Gauge32 | Десятые доли вольта |
-| 4.2.3.0 | upsAdvOutputLoad | Gauge32 | Проценты |
-| 4.3.3.0 | upsHighPrecOutputLoad | Gauge32 | Десятые доли процента |
-| 2.2.2.0 | upsAdvBatteryTemperature | Gauge32 | Внутренняя температура ИБП, °C; ниже 0 → 0 |
-| 2.3.2.0 | upsHighPrecBatteryTemperature | Gauge32 | Та же температура, десятые °C |
-| 2.2.8.0 | upsAdvBatteryActualVoltage | INTEGER | Вольты батарейной цепи, только с настроенным множителем |
-| 2.3.4.0 | upsHighPrecBatteryActualVoltage | INTEGER | Десятые доли вольта батарейной цепи |
+| 1.1.1.0 | upsBasicIdentModel | OCTET STRING | Model from I; otherwise driver designation |
+| 1.1.2.0 | upsBasicIdentName | OCTET STRING | Gateway name |
+| 1.2.1.0 | upsAdvIdentFirmwareRevision | OCTET STRING | UPS firmware version from I, if received |
+| 1.2.3.0 | upsAdvIdentSerialNumber | OCTET STRING | Only if the driver provided a serial number |
+| 8.1.0 | upsCommStatus | INTEGER | 1 connection present; 2 connection absent |
+| 2.1.1.0 | upsBasicBatteryStatus | INTEGER | 1 unknown; 2 no low-battery sign; 3 low battery |
+| 4.1.1.0 | upsBasicOutputStatus | INTEGER | 1 unknown; 2 online; 3 battery; 9 bypass; 15 test |
+| 3.2.1.0 | upsAdvInputLineVoltage | Gauge32 | Volts |
+| 3.3.1.0 | upsHighPrecInputLineVoltage | Gauge32 | Tenths of a volt |
+| 3.2.4.0 | upsAdvInputFrequency | Gauge32 | Hertz |
+| 3.3.4.0 | upsHighPrecInputFrequency | Gauge32 | Tenths of a hertz |
+| 4.2.1.0 | upsAdvOutputVoltage | Gauge32 | Volts |
+| 4.3.1.0 | upsHighPrecOutputVoltage | Gauge32 | Tenths of a volt |
+| 4.2.3.0 | upsAdvOutputLoad | Gauge32 | Percent |
+| 4.3.3.0 | upsHighPrecOutputLoad | Gauge32 | Tenths of a percent |
+| 2.2.2.0 | upsAdvBatteryTemperature | Gauge32 | Internal UPS temperature, °C; below 0 → 0 |
+| 2.3.2.0 | upsHighPrecBatteryTemperature | Gauge32 | Same temperature, tenths of °C |
+| 2.2.8.0 | upsAdvBatteryActualVoltage | INTEGER | Battery chain voltage, only with multiplier configured |
+| 2.3.4.0 | upsHighPrecBatteryActualVoltage | INTEGER | Tenths of a volt of battery chain |
 
-Имена температурных объектов исторически содержат Battery, но их описание
-в PowerNet говорит о **внутренней температуре UPS**. В веб-интерфейсе это
-температура ИБП, а не отдельный датчик батареи. Код bypass=9 — совместимое
-представление обнаруженного bypass; Q1 не сообщает причину его включения.
+The names of the temperature objects historically contain Battery, but their
+description in PowerNet refers to **internal UPS temperature**. In the web
+interface it is UPS temperature, not a separate battery sensor. The bypass=9
+code is a compatible representation of detected bypass; Q1 does not report the
+reason it was turned on.
 
-Ниже предусмотрены адаптером для будущих драйверов, но базовый Q1 их не
-предоставляет: `2.2.1.0` — заряд (%); `2.2.3.0` — runtime (TimeTicks);
-`4.2.2.0` / `4.3.2.0` — измеренная выходная частота (Hz / 0.1 Hz).
+Provided below by the adapter for future drivers, but basic Q1 does not supply
+them: `2.2.1.0` — charge (%); `2.2.3.0` — runtime (TimeTicks);
+`4.2.2.0` / `4.3.2.0` — measured output frequency (Hz / 0.1 Hz).
 
-Неизвестные/неподдерживаемые измерения отсутствуют: GET получает
-`noSuchInstance`, walk пропускает их. При потере RS232 измерения также
-перестают выдаваться как текущие; статусы становятся unknown/noComm.
-Модель/версия могут сохраняться после потери связи. Последние значения
-доступны в веб-интерфейсе с явным признаком устаревания.
+Unknown/unsupported measurements are absent: GET gets `noSuchInstance`, walk
+skips them. On RS232 loss measurements also stop being reported as current;
+statuses become unknown/noComm. Model/version may persist after loss of
+connection. Last values are available in the web interface with an explicit
+staleness flag.
 
-## Управление ИБП по SNMP
+## UPS management over SNMP
 
-Выключено по умолчанию. Включается заданием Write Community (страница
-Network / SNMP, поле `snmp_write_community`, 1–64 байта, должно отличаться от
-Read Community). Кроме того, действуют те же разрешения, что и для
-веб-управления: `controls_enabled` для всех команд и `power_controls_enabled`
-для команд, меняющих выход. Ограничение `snmp_manager_ip` действует и на SET.
-Запрос с Write Community может делать и GET, и SET.
+Disabled by default. Enabled by setting the Write Community (Network / SNMP
+page, field `snmp_write_community`, 1–64 bytes, must differ from Read
+Community). In addition, the same permissions apply as for web management:
+`controls_enabled` for all commands and `power_controls_enabled` for commands
+that change the output. The `snmp_manager_ip` restriction also applies to SET.
+A request with Write Community may do both GET and SET.
 
-| Суффикс с .0 | Объект | Значение → команда MegaTec |
+| Suffix with .0 | Object | Value → MegaTec command |
 | --- | --- | --- |
-| 6.2.1.0 | upsAdvControlUpsOff | 2 → `output_off` через 12 с (`S.2`); 3 (graceful) → через 1 мин (`S01`) |
-| 6.1.1.0 | upsBasicControlConserveBattery | 2 → `output_restart`: отключение через 1 мин, включение через 3 мин (`S01R0003`); только при работе от батареи |
-| 6.2.2.0 | upsAdvControlRebootShutdownUps | 2 → `output_restart` через 12 с, включение через 3 мин (`S.2R0003`); 3 → через 1 мин (`S01R0003`) |
-| 6.2.5.0 | upsAdvControlFlashAndBeep | 2 → `beeper_toggle` (`Q`, переключает звук) |
+| 6.2.1.0 | upsAdvControlUpsOff | 2 → `output_off` after 12 s (`S.2`); 3 (graceful) → after 1 min (`S01`) |
+| 6.1.1.0 | upsBasicControlConserveBattery | 2 → `output_restart`: off after 1 min, on after 3 min (`S01R0003`); only on battery |
+| 6.2.2.0 | upsAdvControlRebootShutdownUps | 2 → `output_restart` after 12 s, on after 3 min (`S.2R0003`); 3 → after 1 min (`S01R0003`) |
+| 6.2.5.0 | upsAdvControlFlashAndBeep | 2 → `beeper_toggle` (`Q`, toggles sound) |
 | 6.2.6.0 | upsAdvControlTurnOnUPS | 2 → `shutdown_cancel` (`C`) |
 | 7.2.2.0 | upsAdvTestDiagnostics | 2 → `test_short` (`T`) |
 | 7.2.5.0 | upsAdvTestRuntimeCalibration | 2 → `test_deep` (`TL`); 3 → `test_cancel` (`CT`) |
-| 5.2.10.0 | upsAdvConfigShutoffDelay | TimeTicks 6000 (60 с — задержка graceful-отключения), только чтение |
-| 5.2.9.0 | upsAdvConfigReturnDelay | TimeTicks 18000 (180 с — задержка включения), только чтение |
+| 5.2.10.0 | upsAdvConfigShutoffDelay | TimeTicks 6000 (60 s — graceful shutdown delay), read-only |
+| 5.2.9.0 | upsAdvConfigReturnDelay | TimeTicks 18000 (180 s — turn-on delay), read-only |
 
-Что делает ИБП после `S01` и `SnnRmmmm` при отсутствии и возврате сети
-(остаётся ли выключенным, отсчитывает ли `mmmm` от отключения или от возврата
-сети), на Sinus EVO не проверено. В частности, NUT `blazer`/`nutdrv_qx` для
-`shutdown.stayoff` по RS-232 отправляет `SnnR0000`, а шлюз на
-`upsAdvControlUpsOff = 3` — `S01`; что ИБП останется выключенным после
-возврата сети, не гарантируется. Проверьте на своём ИБП до использования в
-сценариях автоматического отключения.
+What the UPS does after `S01` and `SnnRmmmm` with network absent and restored
+(whether it remains off, whether `mmmm` counts from disconnection or from
+network return) is not verified on Sinus EVO. In particular, NUT `blazer`/`nutdrv_qx`
+for `shutdown.stayoff` over RS-232 sends `SnnR0000`, while the gateway on
+`upsAdvControlUpsOff = 3` — `S01`; whether the UPS remains off after network
+return is not guaranteed. Verify on your UPS before using it in automatic
+shutdown scenarios.
 
-GET объекта управления возвращает INTEGER 1 («нет действия», как требует
-PowerNet-MIB), но объект виден (с любой community) только если задана Write
-Community, включены нужные разрешения и драйвер поддерживает команду. Иначе GET получает
-`noSuchInstance`, а walk его пропускает. NUT `snmp-ups` (`mibs=apc`) объявляет
-команду только при успешном GET, поэтому `upscmd -l` показывает ровно
-доступные команды:
+GET on a management object returns INTEGER 1 ("no action", as PowerNet-MIB
+requires), but the object is visible (with any community) only if Write
+Community is set, needed permissions are enabled, and the driver supports the
+command. Otherwise GET gets `noSuchInstance`, and walk skips it. NUT
+`snmp-ups` (`mibs=apc`) declares a command only on successful GET, so
+`upscmd -l` shows exactly the available commands:
 
-| NUT | Объект и значение |
+| NUT | Object and value |
 | --- | --- |
 | `load.off` | upsAdvControlUpsOff = 2 |
 | `shutdown.stayoff` | upsAdvControlUpsOff = 3 |
@@ -109,38 +110,38 @@ Community, включены нужные разрешения и драйвер 
 | `test.battery.start` | upsAdvTestDiagnostics = 2 |
 | `calibrate.start` / `calibrate.stop` | upsAdvTestRuntimeCalibration = 2 / 3 |
 
-Ответы SET (SNMPv2c error-status):
+SET responses (SNMPv2c error-status):
 
-| Ситуация | Ответ |
+| Situation | Response |
 | --- | --- |
-| Значение 1 | `noError`, команда не отправляется |
-| Команда принята в очередь | `noError`. Это только приём в очередь: если потом отправка по RS-232 не удастся (статус устарел, запись в UART неполная), SET об этом уже не сообщит — ошибка попадёт в журнал событий и `last_state` на странице Control. Выполнение ИБП проверяйте по следующему Q1 |
-| Повтор байт-в-байт последнего SET с того же адреса и порта в течение 10 с | Тот же ответ из кэша; команда повторно не ставится. Кэш на один запрос: если между исходным SET и повтором пришёл другой непустой SET с Write Community (от любого менеджера), повтор выполняется заново |
-| Пустой список varbind | `noError` |
-| Read Community, неизвестный или только читаемый OID | `notWritable` (17) |
-| Не INTEGER (у записываемого объекта) | `wrongType` (7) |
-| Другое значение; ConserveBattery не от батареи | `wrongValue` (10) |
-| Больше одного действия в запросе | `inconsistentValue` (12) на втором, ничего не отправляется |
-| Управление выключено, команда не поддерживается, статус Q1 устарел, ИБП занят другой командой | `inconsistentValue` (12) |
+| Value 1 | `noError`, command not sent |
+| Command accepted into queue | `noError`. This is only queue acceptance: if RS232 sending later fails (status stale, UART write incomplete), SET will not report it — the error goes to the event journal and `last_state` on the Control page. Verify UPS execution on the next Q1 |
+| Byte-for-byte repetition of the last SET from the same address and port within 10 s | Same answer from cache; the command is not queued again. Cache for one request: if another non-empty SET with Write Community (from any manager) arrives between the original SET and the repetition, the repetition is executed again |
+| Empty varbind list | `noError` |
+| Read Community, unknown or read-only OID | `notWritable` (17) |
+| Not INTEGER (on a writable object) | `wrongType` (7) |
+| Another value; ConserveBattery not on battery | `wrongValue` (10) |
+| More than one action in the request | `inconsistentValue` (12) on the second, nothing is sent |
+| Control disabled, command not supported, Q1 status stale, UPS busy with another command | `inconsistentValue` (12) |
 
-Ошибка возвращается для первого по порядку неверного varbind. Запрос
-проверяется целиком до постановки команды в очередь.
+The error is returned for the first invalid varbind in order. The request is
+checked as a whole before queueing the command.
 
-SNMPv2c передаёт community открытым текстом. Write Community не может
-совпадать ни с Read Community, ни с community включённого получателя traps
-(иначе trap раскрыл бы её получателю). Ограничьте SET через
-`snmp_manager_ip` и держите шлюз в доверенной сети управления. Задержки 12 с, 1 мин и
-3 мин выбраны так, чтобы точно кодироваться в MegaTec без округления;
-настраиваемых задержек по SNMP нет. Карта KSTAR на «reboot» отправляет
-`S.2R0000`; шлюз не использует `R0000`, потому что смысл нуля не установлен.
+SNMPv2c passes community in plain text. Write Community must not equal either
+Read Community or the community of the enabled trap receiver (otherwise the trap
+would expose it to its recipient). Limit SET via `snmp_manager_ip` and keep the
+gateway in a trusted management network. Delays of 12 s, 1 min, and 3 min are
+chosen to encode exactly in MegaTec without rounding; no configurable delays
+over SNMP. The KSTAR card sends `S.2R0000` on "reboot"; the gateway does not
+use `R0000` because the meaning of zero is not established.
 
-## Уведомления
+## Notifications
 
-Только SNMPv2c TRAP. INFORM, SNMPv1 и SNMPv3 не реализованы в версии 0.2.0.
-В каждой trap первые varbind — sysUpTime.0 и snmpTrapOID.0, затем
-`mtrapargsString.0` (`1.3.6.1.4.1.318.2.3.3.0`) и sysName.0.
+SNMPv2c TRAP only. INFORM, SNMPv1 and SNMPv3 are not implemented in version
+0.2.0. In each trap the first varbinds are sysUpTime.0 and snmpTrapOID.0, then
+`mtrapargsString.0` (`1.3.6.1.4.1.318.2.3.3.0`) and sysName.0.
 
-| trap OID | Событие |
+| Trap OID | Event |
 | --- | --- |
 | 1.3.6.1.4.1.318.0.1 | communicationLost |
 | 1.3.6.1.4.1.318.0.8 | communicationEstablished |
@@ -148,15 +149,14 @@ SNMPv2c передаёт community открытым текстом. Write Commun
 | 1.3.6.1.4.1.318.0.9 | powerRestored |
 | 1.3.6.1.4.1.318.0.7 | lowBattery |
 | 1.3.6.1.4.1.318.0.11 | returnFromLowBattery |
-| 1.3.6.1.6.3.1.1.5.1 | coldStart: запуск шлюза или явно помеченная проверка канала |
+| 1.3.6.1.6.3.1.1.5.1 | coldStart: gateway start or explicitly marked channel check |
 
-Два получателя, у каждого IPv4/порт/community. Очередь на 16 событий.
-При отсутствии Ethernet события ждут не более 30 секунд до возобновления
-отправки; более старые записи не отправляются как новые. Кольцевой журнал
-на 48 записей остаётся в RAM до перезапуска. `sent` означает успешную
-передачу UDP-пакета локальному стеку, а не подтверждение приёма.
+Two receivers, each with IPv4/port/community. Queue of 16 events. Without
+Ethernet events wait no more than 30 seconds before sending resumes; older
+entries are not sent as new ones. The circular 48-record journal remains in
+RAM until restart. `sent` means successful transmission of the UDP packet to
+the local stack, not acknowledgment of receipt.
 
-Общая неисправность Q1, начало/окончание теста и процедура shutdown
-попадают в локальный журнал. Они не подменяются чужими APC-событиями
-перегрузки, замены батареи или результата самотеста, которых Q1 не сообщает.
-
+General Q1 fault, test start/end, and the shutdown procedure go to the local
+journal. They are not substituted by other APC events such as overload,
+battery replacement, or test result, which Q1 does not report.

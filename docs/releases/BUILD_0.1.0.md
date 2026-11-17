@@ -1,111 +1,111 @@
-# Проверка выпуска 0.1.0 — 11 ноября 2026
+# Release 0.1.0 verification — 11 November 2026
 
-## Что действительно выполнено
+## What was actually done
 
-Проект собран штатным `tools/build.py` для `esp32-poe-16mb`.
-Это кросс-компиляция для ESP32, а не только синтаксическая проверка или
-заготовка кода. Исходники из `src/`, `lib/` и `web/` соответствуют выданным
-образам; после финальной сборки они не изменялись.
+The project was built with the standard `tools/build.py` for `esp32-poe-16mb`.
+This is cross-compilation for ESP32, not only a syntax check or code stub.
+Sources from `src/`, `lib/` and `web/` match the produced images; they were not
+changed after the final build.
 
-| Параметр | Фактический результат |
+| Parameter | Actual result |
 | --- | --- |
-| Цель | ESP32-POE WROOM, 16 MB flash, MOD-RS232 |
+| Target | ESP32-POE WROOM, 16 MB flash, MOD-RS232 |
 | PlatformIO Core | 6.1.18 |
 | Platform | espressif32 6.12.0 |
 | Framework | Arduino ESP32 2.0.17 |
-| Компилятор ESP32 | Xtensa GCC 8.4.0+2021r2-patch5 |
+| ESP32 compiler | Xtensa GCC 8.4.0+2021r2-patch5 |
 | ArduinoJson | 6.21.5 |
-| Размер приложения по отчёту линкера | 901125 байт / 4128768, 21.8% |
-| Статически распределённая RAM | 48364 байт / 327680, 14.8% |
-| Готовый firmware.bin, включая формат образа | 907696 байт |
-| Web HTML/JS/CSS | 50288 байт, встроенный gzip 15076 байт |
+| App size per linker report | 901125 bytes / 4128768, 21.8% |
+| Statically allocated RAM | 48364 bytes / 327680, 14.8% |
+| Ready firmware.bin including image format | 907696 bytes |
+| Web HTML/JS/CSS | 50288 bytes, built-in gzip 15076 bytes |
 
-Статическая RAM в таблице не включает все динамические выделения во время
-работы. Реальный минимум свободной heap и длительная стабильность должны
-измеряться на устройстве.
+Static RAM in the table does not include all dynamic allocations during
+operation. The real minimum free heap and long-term stability must be measured
+on the device.
 
-## Образы и разметка
+## Images and layout
 
-Проверены заголовки образов, размеры, фиксированная таблица разделов и
-контрольные суммы. Bootloader и приложение имеют код размера flash 4,
-соответствующий 16 MB. Таблица содержит один `factory` slot и отдельную
-NVS `appcfg`; OTA-разделов нет. Проверочный запуск `tools/flash.py --dry-run
-install` прошёл без обращения к последовательному порту.
+Image headers, sizes, the fixed partition table, and checksums were verified.
+The bootloader and application have flash size code 4, corresponding to 16 MB.
+The table contains a single `factory` slot and a separate NVS `appcfg`; there
+are no OTA partitions. A `tools/flash.py --dry-run install` check passed
+without accessing the serial port.
 
-| Файл | Байт | SHA-256 |
+| File | Bytes | SHA-256 |
 | --- | --- | --- |
 | bootloader.bin | 17536 | a23f2db3a09e9df581a397ade210cce2224b593f8ae563a28f75b5b9795f30b3 |
 | partitions.bin | 3072 | 6994764429c1125ab6c8b08276f9785ac9b85dcb27a06107a04c1a80c0b966fb |
 | firmware.bin | 907696 | 5430a4e53e1580889aec9e8db9c470f4408da3e94b3da8596d37a935523efc12 |
 
-Эти же сведения находятся в `firmware/build-info.json` и
-`firmware/SHA256SUMS.txt`. Скрипт сборки обновляет их при пересборке.
+The same information is in `firmware/build-info.json` and
+`firmware/SHA256SUMS.txt`. The build script updates them on rebuild.
 
-## Автоматические проверки
+## Automatic checks
 
-| Проверка | Результат и границы |
+| Check | Result and boundaries |
 | --- | --- |
-| `python tools/test_host.py` | Все 6 C++ suites прошли; строгие предупреждения компилятора включены |
-| `ASAN_OPTIONS=detect_leaks=0 python tools/test_host.py --sanitize` | Те же 6 suites прошли с AddressSanitizer и UndefinedBehaviorSanitizer |
-| SNMP внутри этих suites | 16 групп: BER, OID, GET/GETNEXT/GETBULK, ошибки, read-only SET, traps и ограничения размеров |
-| `python -m unittest discover -s tests -p 'test_*.py' -v` | Все 28 тестов прошли: 14 flash-helper и 14 trap-adapter |
-| JavaScript `node --check` | Встроенный код `web/index.html` синтаксически корректен |
-| `git diff --check` | Ошибок форматирования diff не обнаружено |
+| `python tools/test_host.py` | All 6 C++ suites passed; strict compiler warnings enabled |
+| `ASAN_OPTIONS=detect_leaks=0 python tools/test_host.py --sanitize` | The same 6 suites passed with AddressSanitizer and UndefinedBehaviorSanitizer |
+| SNMP inside these suites | 16 groups: BER, OID, GET/GETNEXT/GETBULK, errors, read-only SET, traps and size constraints |
+| `python -m unittest discover -s tests -p 'test_*.py' -v` | All 28 tests passed: 14 flash-helper and 14 trap-adapter |
+| JavaScript `node --check` | Embedded code `web/index.html` is syntactically correct |
+| `git diff --check` | No diff formatting errors found |
 
-C++ suites покрывают строгую валидацию конфигурации и JSON-импорта,
-сохранение секретов при пустых полях, отказ без частичного изменения,
-драйвер MegaTec Q1, переходы состояния, соответствие PowerNet и SNMP.
-Тесты скрипта прошивки используют записывающий вызовы подставной transport:
-проверяют адреса записи, пределы образов, размер flash, копирование и
-сравнение конфигурации, отказ до записи при неверных условиях. Физическую
-плату эти тесты не программируют.
+C++ suites cover strict configuration validation and JSON import,
+secret preservation with empty fields, refusal without partial modification,
+MegaTec Q1 driver, state transitions, PowerNet and SNMP conformance.
+Firmware script tests use writing stub transport calls: they check write
+addresses, image limits, flash size, configuration copy and comparison,
+refusal before writing under invalid conditions. Physical board these tests do
+not program.
 
-Во время независимой проверки найден и исправлен случай, когда большой
-GETBULK-ответ терял все результаты. Повторный запуск исходного воспроизводителя
-с реальным `PowerNetMib` вернул 1398 байт, status 0 и 53 varbinds: сохраняется
-упорядоченный префикс, помещающийся в лимит. Также исправлены round-trip
-старших скоростей UART, UTF-8 byte limits формы и подпись `sent_unconfirmed`.
-В адресной повторной проверке оставшихся замечаний уровней P0/P1/P2 не
-выявлено. Это обзор исходников, а не сертификация безопасности.
+During independent review, a case was found and fixed where a large GETBULK
+response lost all results. Re-running the original reproducer with real
+`PowerNetMib` returned 1398 bytes, status 0 and 53 varbinds: an ordered prefix
+fitting the limit is preserved. Also fixed UART baud high-speed round-trip,
+form UTF-8 byte limits, and the `sent_unconfirmed` signature. In the address
+repeated review of remaining remarks, no P0/P1/P2 level issues were found.
+This is a source review, not a security certification.
 
-## Ограничения среды и непроведённые проверки
+## Environment limitations and unverified checks
 
-- Первоначальный запуск sanitizer с LeakSanitizer завершился сообщением о
-  несовместимости LSan с ptrace в этой среде. Итоговые 6 suites выполнены с
-  `detect_leaks=0`: ASan и UBSan включены, проверка утечек LSan не заявляется.
-- Браузерная проверка не завершилась: локальный Chromium не смог создать
-  системные сокеты из-за ограничений среды. Синтаксис JS и соответствие
-  формы/API проверены, но визуальный рендеринг и браузерный сценарий не
-  объявляются испытанными. `tests/web_ui_check.py` — необязательный сценарий
-  с синтетическим API для отдельного запуска с Playwright; его успешное
-  выполнение в этом выпуске не заявляется.
-- Реального ESP32-POE, MOD-RS232 и Inform Sinus EVO здесь нет. Не проверены
-  загрузка на плате, электрический обмен, семантика управляющих команд
-  конкретного ИБП, Ethernet при рабочей нагрузке, сохранение NVS после
-  физической перепрошивки/обрыва питания и длительная работа.
-- PHP, snmptrapd, rsyslogd и работающий сервер Observium CE здесь отсутствуют.
-  Подготовлены профиль и конфигурации интеграции; выполнены тесты адаптера
-  на синтетических входах. Приём настоящего trap и discovery датчиков
-  конкретной версии CE не проверены.
+- The initial sanitizer run with LeakSanitizer ended with a message about LSan
+  incompatibility with ptrace in this environment. The final 6 suites were run
+  with `detect_leaks=0`: ASan and UBSan are enabled; LSan leak checking is not
+  claimed.
+- Browser verification was not completed: local Chromium could not create system
+  sockets due to environment restrictions. JS syntax and form/API compliance
+  were verified, but visual rendering and browser scenario are not declared
+  tested. `tests/web_ui_check.py` — optional scenario with synthetic API for
+  separate run with Playwright; its successful execution in this release is not
+  claimed.
+- No real ESP32-POE, MOD-RS232, or Inform Sinus EVO here. Not verified: board
+  flashing, electrical exchange, semantics of management commands of a specific
+  UPS, Ethernet under load, NVS preservation after physical reflashing/power
+  interruption and long-term operation.
+- PHP, snmptrapd, rsyslogd and a running Observium CE server are absent here.
+  Prepared profile and integration configurations; adapter tests on synthetic
+  inputs were performed. Receipt of a real trap and discovery sensors of a
+  specific CE version were not verified.
 
-При сборке обнаружено нежелательное обращение PlatformIO к серверу
-телеметрии. Оно отключено поддерживаемой настройкой; `tools/build.py`
-также явно отключает телеметрию. Загрузка необходимых пакетов при первой
-сборке требует интернета.
+During build, unwanted PlatformIO access to the telemetry server was detected.
+It is disabled by the supported setting; `tools/build.py` also explicitly
+disables telemetry. Loading required packages at the first build requires
+internet.
 
-## Первичная стендовая приёмка
+## Primary stand acceptance
 
-1. Прошить плату по README и проверить USB-консоль, адрес Ethernet и вход
-   в веб-интерфейс.
-2. Убедиться, что Q1 даёт устойчивые ответы, и сравнить показания с ИБП.
-3. Проверить SNMP walk, обнаружение в CE, тестовый trap, обрыв и
-   восстановление RS232.
-4. Изменить одну безобидную настройку, сохранить, выполнить штатное `update`
-   и убедиться в сохранении настройки; скрипт дополнительно сравнит raw NVS.
-5. Только после подтверждения протокола и на подходящей нагрузке разрешать
-   управление. Передача команды UART обозначается как неподтверждённая;
-   состояние нагрузки проверяется отдельно.
+1. Flash the board per README and verify USB console, Ethernet address, and web
+   interface login.
+2. Verify that Q1 gives stable answers, and compare readings with the UPS.
+3. Check SNMP walk, discovery in CE, test trap, RS232 break and restoration.
+4. Change one harmless setting, save it, run the standard `update` and verify
+   that the setting is preserved; the script additionally compares raw NVS.
+5. Only after protocol confirmation and on a suitable load, allow control.
+   Transmitting a command over UART is marked as unconfirmed; the load state is
+   checked separately.
 
-Все исходники, web-ресурсы, тесты, конфигурация PlatformIO и скрипты
-включены в ZIP вместе с готовыми образами. Зависимости из PlatformIO
-устанавливаются при сборке по зафиксированным версиям.
+All sources, web resources, tests, PlatformIO configuration and scripts are
+included in the ZIP together with ready images. PlatformIO dependencies are
+installed at build by pinned versions.

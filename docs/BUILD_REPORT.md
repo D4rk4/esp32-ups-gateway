@@ -1,123 +1,129 @@
-# Проверка выпуска 0.2.0 — 11 ноября 2026
+# Release 0.2.0 verification — 11 November 2026
 
-**Исторический отчёт:** сведения ниже относятся к исходной сборке от 11 ноября
-2026 года, а не к текущим пересобранным файлам в `firmware/`.
+**Historical report:** the information below refers to the original build of
+11 November 2026, not to the currently rebuilt files in `firmware/`.
 
-**Текущее состояние сборки на macOS (12 ноября 2026):** `firmware.bin` содержит
-1 035 008 байт, SHA-256:
+**Current build state on macOS (12 November 2026):** `firmware.bin` contains
+1 035 008 bytes, SHA-256:
 `0ceedeba1b1707179ecfad51489c0191cc2173e36c06acbecdd8b9664d579d33`.
-Все 10 native-наборов прошли, в том числе с ASan/UBSan. HTTP-адаптер прошёл в
-обоих режимах; прошли также 90 Python-тестов, проверка EventBus и контракт UI.
-На момент этой записи пересборка на физической плате не проверялась.
+All 10 native sets passed, including with ASan/UBSan. The HTTP adapter passed in
+both modes; also passed were 90 Python tests, the EventBus check, and the UI
+contract. At the time of this writing, a rebuild on physical hardware was not
+verified.
 
-`python tools/package_release.py` завершается кодом 1 и не создаёт архив:
-Semgrep — PASS на узком локальном наборе правил (это не аудит безопасности);
-Trivy — FAIL: уязвимостей, секретов и ошибок конфигурации нет, но есть две
-находки по лицензиям инструментов сборки из `requirements.txt` (esptool —
-GPL-2.0-or-later, platformio — Apache-2.0), а зависимости PlatformIO Trivy не
-покрывает. Покрытие 100%, crapper, dryer и mutator — BLOCKED, потому что C/C++,
-встроенный JavaScript и PHP этими инструментами не покрываются, а Python-код
-не достигает порогов. Готовность к выпуску не заявляется.
+`python tools/package_release.py` exits with code 1 and creates no archive:
+Semgrep — PASS on the narrow local rule set (this is not a security audit);
+Trivy — FAIL: no vulnerabilities, secrets, or configuration errors, but there
+are two findings on build tool licenses from `requirements.txt` (esptool —
+GPL-2.0-or-later, platformio — Apache-2.0), and PlatformIO dependencies are not
+covered by Trivy. Coverage 100%, crapper, dryer, and mutator — BLOCKED,
+because C/C++, embedded JavaScript, and PHP are not covered by these tools,
+and Python code does not reach the thresholds. Release readiness is not claimed.
 
-## Результат и границы
+## Result and boundaries
 
-Прошивка действительно кросс-компилирована для ESP32-POE WROOM 16 MB и
-MOD-RS232 штатным `tools/build.py`. Финальная сборка выполнена после исправлений
-сессий, обработки нехватки памяти и свежести индикатора нагрузки. Исходники
-прошивки и UI после этой сборки не изменялись; документация и упаковка отдельны.
+The firmware was indeed cross-compiled for ESP32-POE WROOM 16 MB and MOD-RS232
+via the standard `tools/build.py`. The final build was made after fixing
+sessions, out-of-memory handling, and load gauge freshness. Firmware and UI
+sources were not changed after this build; documentation and packaging are
+separate.
 
-**Скриншоты не получены.** Управляемый браузер отклонил открытие локального
-`file://`-стенда политикой URL: разрешены только HTTP/HTTPS; ответ также запретил
-обход через иной браузер/поверхность. Попытка остановлена. Ни браузерный рендер,
-ни реальные клики в браузере не проверены. Макеты и программно нарисованные
-картинки вместо скриншотов не создавались. Пользовательский запрос на
-валидацию скриншотами остаётся невыполненным.
+**No screenshots were obtained.** The managed browser declined opening the local
+`file://` stand by URL policy: only HTTP/HTTPS are allowed; bypass via another
+browser/surface was also rejected. The attempt was stopped. Neither browser
+rendering nor real clicks in the browser were verified. Mockups and
+programmatically drawn images instead of screenshots were not created. A user
+request to validate screenshots remains unfulfilled.
 
-Отдельный `tests/ui_fixture.html` содержит настоящий клиентский код и явно
-помеченный синтетический API для локального просмотра. Тестовый обработчик
-не обращается к сети/ИБП и не встроен в прошивку. Совпадение клиентского
-JavaScript между стендом и производственным HTML проверено побайтово.
-Побайтово проверено и распакованное gzip-содержимое `src/web_assets.hpp`.
+A separate `tests/ui_fixture.html` contains the real client code and explicitly
+marked synthetic API for local viewing. The test handler does not access the
+network/UPS and is not embedded in the firmware. Matching of client JavaScript
+between the stand and the production HTML was verified byte-by-byte. Unpacked
+gzip content of `src/web_assets.hpp` was also verified byte-by-byte.
 
-## Фактическая сборка
+## Actual build
 
-| Параметр | Результат |
+| Parameter | Result |
 | --- | --- |
-| Версия | 0.2.0 |
-| Плата | Olimex ESP32-POE WROOM, физические 16 MB flash, MOD-RS232 |
+| Version | 0.2.0 |
+| Board | Olimex ESP32-POE WROOM, physical 16 MB flash, MOD-RS232 |
 | PlatformIO Core | 6.1.18 |
 | Platform | espressif32 6.12.0 |
 | Framework | Arduino ESP32 2.0.17 |
-| Компилятор ESP32 | Xtensa GCC 8.4.0+2021r2-patch5 |
+| ESP32 compiler | Xtensa GCC 8.4.0+2021r2-patch5 |
 | ArduinoJson | 6.21.5 |
-| Приложение по линкеру | 1027381 / 4128768 байт, 24.9% |
-| Статическая RAM | 50948 / 327680 байт, 15.5% |
-| Готовый firmware.bin | 1033952 байта |
-| Производственный HTML/JS/CSS | 127264 байта |
-| Встроенный gzip UI | 41963 байта |
-| Слоты приложения | Один factory: 0x10000 / 0x3F0000 |
-| Конфигурация | Прежний appcfg: 0xF00000 / 0x10000 |
+| App per linker | 1027381 / 4128768 bytes, 24.9% |
+| Static RAM | 50948 / 327680 bytes, 15.5% |
+| Ready firmware.bin | 1033952 bytes |
+| Production HTML/JS/CSS | 127264 bytes |
+| Built-in gzip UI | 41963 bytes |
+| App slots | Single factory: 0x10000 / 0x3F0000 |
+| Configuration | Previous appcfg: 0xF00000 / 0x10000 |
 
-Статическая RAM не включает все динамические выделения, стеки задач, TCP и
-NVS. Минимальный свободный heap и запас стека на реальном ESP32 не измерялись.
-PlatformIO telemetry отключена. Отдельная файловая система и OTA-слот не нужны.
+Static RAM does not include all dynamic allocations, task stacks, TCP, and NVS.
+Minimum free heap and stack margin on the real ESP32 were not measured.
+PlatformIO telemetry is disabled. A separate filesystem and an OTA slot are not
+needed.
 
-## Выполненные тесты
+## Tests performed
 
-| Проверка | Фактический результат |
+| Check | Actual result |
 | --- | --- |
-| 10 native suites общих C++ модулей | Все прошли |
-| Те же 10 suites с ASan/UBSan | Все прошли, диагностик ASan/UBSan нет |
-| SNMP BER/GET/GETNEXT/GETBULK | 16 групп в составе native suite прошли |
-| Python: установка/обновление/backup и trap→syslog | 28 тестов прошли |
-| Настоящие обработчики WebService с подменённой границей ESP/HTTP | Native и ASan/UBSan прошли |
-| Настоящий EventBus с очередью в памяти | ASan/UBSan прошёл; очистка лога сохраняет очередь traps |
-| Текущий производственный JavaScript в Node VM | Проверки контрактов/состояний прошли |
-| `node --check tests/ui_fixture_api.js` | Синтаксис проверен |
-| Упаковка web gzip и стенда | Содержимое клиентского приложения совпадает |
-| Проверка новых flash-образов и dry-run update | Заголовки, размеры, таблица и SHA-256 проверены; аппаратной записи не было |
-| Извлечённый APC-референс | Проверены хеши/размеры 162 ресурсов, CRC ddf.zip, 581 описание полей без ошибок |
-| Независимый ограниченный review | Найденный дефект срока свежести UI исправлен и перепроверен |
+| 10 native suites of shared C++ modules | All passed |
+| The same 10 suites with ASan/UBSan | All passed, no ASan/UBSan diagnostics |
+| SNMP BER/GET/GETNEXT/GETBULK | 16 groups in the native suite passed |
+| Python: install/update/backup and trap→syslog | 28 tests passed |
+| Real WebService handlers with substituted ESP/HTTP boundary | Native and ASan/UBSan passed |
+| Real EventBus with in-memory queue | ASan/UBSan passed; log cleanup preserves trap queue |
+| Current production JavaScript in Node VM | Contract/state checks passed |
+| `node --check tests/ui_fixture_api.js` | Syntax verified |
+| Web gzip packaging and stand content | Client app content matches |
+| Verification of new flash images and dry-run update | Headers, sizes, table, and SHA-256 verified; no hardware write |
+| Extracted APC reference | Hashes/sizes of 162 resources verified, CRC ddf.zip, 581 field descriptions without errors |
+| Independent limited review | Found UI freshness defect fixed and rechecked |
 
 Native suite: auth, config, config_json, config_v02, driver, events,
-http_contract, management, powernet, snmp. Компиляция использует
-`-Wall -Wextra -Wpedantic -Werror`. LeakSanitizer отключён только из-за
-ограничения ptrace этой среды (`ASAN_OPTIONS=detect_leaks=0`); ASan и UBSan
-включены. Успех этих тестов не доказывает отсутствия утечек на устройстве.
+http_contract, management, powernet, snmp. Compilation uses
+`-Wall -Wextra -Wpedantic -Werror`. LeakSanitizer is disabled only due to the
+ptrace limitation of this environment (`ASAN_OPTIONS=detect_leaks=0`); ASan and
+UBSan are enabled. Success of these tests does not prove absence of leaks on
+the device.
 
-Существенные проверенные случаи:
+Substantial verified cases:
 
-- Миграция полной схемы 1 в схему 2 с сохранением точных секретов; отклонение
-  неверного/будущего формата без подмены исходной конфигурации.
-- Ограничения JSON/полей, сохранение пустых секретов и атомарный отказ ошибочной
-  правки; отдельные роли, CSRF, сессии и ограничение попыток входа.
-- Истечение сессии между проверкой и обработкой не допускает чтения/записи.
-  Ошибки выделения памяти не вызывают рекурсию ответа и не выдаются как пустой 200.
-- Требование свежего `POWER` до сохранения новых/изменённых правил питания,
-  включая включение сохранённых правил, смену драйвера и времени weekly-правил.
-- Планировщик фиксирует claim до enqueue; ошибка записи запрещает отправку.
-  Нет catch-up, повторов после рестарта/скачка часов и двойного weekly-выполнения
-  при повторном часе DST. Сомнительный результат остаётся `uncertain`.
-- Обычный простой weekly-правила за 24 часа требует одной стартовой записи,
-  а не записи NVS каждую минуту. Отметки исполнения/пропуска сохраняются отдельно.
-- История ограничена 240 точками; отсутствующие и устаревшие числа остаются null.
-  Пороговые события не маскируются под физические APC alarm traps.
-- Шкала APC имеет 20 сегментов; проверены обычная, жёлтая, красная, отсутствующая
-  и устаревшая нагрузка, действующий порог и ограничения прав/команд.
-- UI учитывает `age_ms` плюс время после ответа, активный `ups.stale_ms` и
-  максимум 15 секунд кеша. Отдельный таймер снимает индикацию даже при зависшем
-  запросе. Проверены 700 ms, 10000 ms, точная граница, неверные часы и значения.
-- Сохранение формы отправляет только её поля, оставляет другие настройки и
-  разделяет текущую/сохранённую конфигурации. Импорт не подставляет POWER из файла.
+- Full schema 1 migration to schema 2 with exact secrets preserved; rejection of
+  invalid/future format without substituting the original configuration.
+- JSON/field limits, empty secret preservation, and atomic refusal of an
+  erroneous edit; separate roles, CSRF, sessions, and login attempt limits.
+- Session expiry between check and processing does not permit read/write.
+  Memory allocation errors do not cause response recursion and are not issued
+  as empty 200.
+- Fresh `POWER` required before saving new/changed power rules, including
+  enabling saved rules, driver change, and weekly rule time changes.
+- The scheduler fixes claim before enqueue; a write error prohibits sending.
+  No catch-up, repeats after restart/clock jump, or double weekly execution on
+  repeated DST hour. A dubious result remains `uncertain`.
+- An ordinary simple weekly rule per 24 hours requires one startup record, not
+  an NVS write every minute. Execution/skip markers are stored separately.
+- History limited to 240 points; missing and stale numbers remain null.
+  Threshold events are not masked under physical APC alarm traps.
+- APC gauge has 20 segments; verified normal, yellow, red, missing, and stale
+  load, active threshold, and rights/command limits.
+- UI accounts for `age_ms` plus time after response, active `ups.stale_ms`, and
+  up to 15 seconds cache maximum. A separate timer clears the indication even
+  during a hung request. Verified 700 ms, 10000 ms, exact boundary, incorrect
+  clock, and values.
+- Form saving sends only its fields, leaves other settings, and separates
+  current/saved configurations. Import does not substitute POWER from the file.
 
-Node VM использует минимальную модель документа. Она проверяет клиентские
-функции и вызовы API, но не выполняет раскладку CSS, реальный DOM браузера,
-cookie/CORS/TCP и взаимодействие мышью. HTTP-адаптер использует реальные
-обработчики и общие модули, но подменяет транспорт, ESP32 и периферию.
+Node VM uses a minimal document model. It verifies client functions and API
+calls, but does not perform CSS layout, real browser DOM, cookie/CORS/TCP, and
+mouse interaction. HTTP adapter uses real handlers and shared modules, but
+substitutes transport, ESP32, and peripherals.
 
-## Образы и контрольные суммы
+## Images and checksums
 
-| Файл | Байт | SHA-256 |
+| File | Bytes | SHA-256 |
 | --- | --- | --- |
 | `bootloader.bin` | 17536 | `a23f2db3a09e9df581a397ade210cce2224b593f8ae563a28f75b5b9795f30b3` |
 | `partitions.bin` | 3072 | `6994764429c1125ab6c8b08276f9785ac9b85dcb27a06107a04c1a80c0b966fb` |
@@ -126,21 +132,20 @@ cookie/CORS/TCP и взаимодействие мышью. HTTP-адаптер 
 SHA-256 `web/index.html`:
 `c72b5dbc862b10604fe407c11794ef98371515bf4a24e2d00708e6d66b13b34d`.
 
-## Что остаётся проверить на оборудовании
+## What remains to be verified on hardware
 
-ESP32 не прошивался, Inform Sinus EVO физически не подключался. Не подтверждены
-распиновка конкретного кабеля, фактическое исполнение управляющих команд,
-получение traps/syslog, NTP,
-живое обнаружение и графики Observium CE, сохранение NVS при реальном
-обновлении/сбое питания, а также динамический запас памяти и длительная работа.
-Команды по умолчанию запрещены; `sent_unconfirmed` не означает ACK ИБП.
+ESP32 was not flashed, Inform Sinus EVO was not physically connected. Not
+confirmed: specific cable pinout, actual execution of control commands, trap/syslog
+receipt, NTP, live discovery and Observium CE graphs, NVS preservation on real
+update/power failure, dynamic memory margin, and long-term operation.
+Commands are forbidden by default; `sent_unconfirmed` does not mean UPS ACK.
 
-Пакет содержит адаптированные основные сценарии APC, а не все службы карты:
-SMTP, HTTPS, SNMPv1/v3/INFORM, RADIUS, SSH/Telnet, FTP/SCP, WAP, WoL,
-полная матрица индивидуальных уведомлений и независимые PDU-розетки не реализованы.
-Карта переноса: `APC_PORT_RU.md`; точная UI/API-матрица: `UI_API_COVERAGE.md`.
-Ограничение часов зафиксированного SDK — 2038-01-19 03:14:07 UTC; предел
-возвращается API и проверяется при вводе времени/расписаний.
+The package contains adapted main APC scenarios, not all card services:
+SMTP, HTTPS, SNMPv1/v3/INFORM, RADIUS, SSH/Telnet, FTP/SCP, WAP, WoL, full
+matrix of individual notifications, and independent PDU outlets are not
+implemented. Porting map: `APC_PORT.md`; exact UI/API matrix:
+`UI_API_COVERAGE.md`. Fixed SDK clock limit — 2038-01-19 03:14:07 UTC; the
+limit is returned by the API and checked on time/schedule entry.
 
-Команды повторения тестов и установки находятся в `README_RU.md`.
-Исторический отчёт 0.1.0 сохранён в `releases/BUILD_0.1.0.md`.
+Test repetition and installation commands are in `README.md`.
+The historical report 0.1.0 is saved in `releases/BUILD_0.1.0.md`.

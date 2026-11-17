@@ -1,4 +1,5 @@
-> Историческая спецификация версии 0.1.0. Изменения 0.2.0 описаны в `APC_V02_SPEC.md` и `APC_PORT_RU.md`; актуальная OTA-разметка — в `OTA_RU.md`.
+> Historical specification version 0.1.0. 0.2.0 changes are described in
+> `APC_V02_SPEC.md` and `APC_PORT.md`; current OTA layout — in `OTA.md`.
 
 # ESP32 UPS Gateway — specification
 
