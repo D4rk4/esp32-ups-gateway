@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <string>
 namespace ups {
-enum class PollKind { Status, Rating, Identity };
+enum class PollKind { Status, Rating, Identity, ExtendedRuntime, ExtendedCharge };
 enum class ParseResult { Accepted, Ignored, Invalid };
 struct EncodedCommand { std::string bytes; uint32_t settle_ms{500}; bool changes_output{false}; };
 class UpsDriver {

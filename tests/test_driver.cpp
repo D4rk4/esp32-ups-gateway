@@ -1,5 +1,6 @@
 #include "driver_registry.hpp"
 #include "megatec_q1.hpp"
+#include "ups_extended_probe.hpp"
 #include <cassert>
 #include <cmath>
 #include <iostream>
@@ -178,5 +179,127 @@ int main() {
   assert(std::string(driver.info().id)=="megatec_q1" && driver.info().default_baud==2400);
   assert(std::string(driver.info().label)=="MegaTec Q1");
   assert(drivers().size()==1 && findDriver("megatec_q1")==drivers()[0] && !findDriver("unknown"));
+  // ---- Extended queries BT (runtime) and BP (charge): strict parsing ----
+  {
+    MegaTecQ1Driver driver;
+    Snapshot base;
+    base.battery_charge = {0, false};
+    base.runtime_seconds = {0, false};
+
+    // BT valid: wire "#  42 0.120\r", total length 12 incl CR -> runtime = 42 min * 60 s; charge untouched
+    {
+      const std::string bt = "#  42 0.120\r";
+      assert(bt.size() == 12);
+      Snapshot s = base;
+      assert(driver.parseReply(PollKind::ExtendedRuntime, bt, s) == ParseResult::Accepted);
+      metric(s.runtime_seconds, 42.0f * 60.0f);
+      assert(!s.battery_charge.valid);
+    }
+    // BT valid with leading zeros / spaces
+    {
+      Snapshot s = base;
+      assert(driver.parseReply(PollKind::ExtendedRuntime, "#   007 5.5\r", s) == ParseResult::Accepted);
+      metric(s.runtime_seconds, 7.0f * 60.0f);
+    }
+    // BT strict length: too long or missing CR is Invalid
+    {
+      Snapshot s = base;
+      assert(driver.parseReply(PollKind::ExtendedRuntime, "#  42 0.120\rX", s) == ParseResult::Invalid);
+      assert(driver.parseReply(PollKind::ExtendedRuntime, "#  42 0.120", s) == ParseResult::Invalid);
+      assert(!s.runtime_seconds.valid);
+    }
+    // BT missing '#' prefix is Invalid
+    {
+      Snapshot s = base;
+      assert(driver.parseReply(PollKind::ExtendedRuntime, "  42 0.12\r", s) == ParseResult::Invalid);
+      assert(!s.runtime_seconds.valid);
+    }
+    // BT non-digits in the minutes field is Invalid
+    {
+      Snapshot s = base;
+      assert(driver.parseReply(PollKind::ExtendedRuntime, "#  1x 0.12\r", s) == ParseResult::Invalid);
+      assert(!s.runtime_seconds.valid);
+    }
+    // BT malformed reply must not mutate existing metrics
+    {
+      Snapshot good = base;
+      good.runtime_seconds = {12345, true};
+      good.battery_charge = {77.5f, true};
+      assert(driver.parseReply(PollKind::ExtendedRuntime, "BAD\r\n", good) == ParseResult::Invalid);
+      metric(good.runtime_seconds, 12345);
+      metric(good.battery_charge, 77.5f);
+    }
+
+    // BP valid: "#1000\r", total length 6 incl CR -> charge = 1000 * 0.1 = 100.0
+    {
+      const std::string bp = "#1000\r";
+      assert(bp.size() == 6);
+      Snapshot s = base;
+      assert(driver.parseReply(PollKind::ExtendedCharge, bp, s) == ParseResult::Accepted);
+      metric(s.battery_charge, 100.0f);
+      assert(!s.runtime_seconds.valid);
+    }
+    // BP boundary: 99.9 and 100.0 accepted
+    {
+      Snapshot s = base;
+      assert(driver.parseReply(PollKind::ExtendedCharge, "#0999\r", s) == ParseResult::Accepted);
+      metric(s.battery_charge, 99.9f);
+      Snapshot s2 = base;
+      assert(driver.parseReply(PollKind::ExtendedCharge, "#1000\r", s2) == ParseResult::Accepted);
+      metric(s2.battery_charge, 100.0f);
+    }
+    // BP above 100.0 rejected (also length 7)
+    {
+      Snapshot s = base;
+      assert(driver.parseReply(PollKind::ExtendedCharge, "#9999\r", s) == ParseResult::Invalid);
+      assert(driver.parseReply(PollKind::ExtendedCharge, "#10001\r", s) == ParseResult::Invalid);
+      assert(driver.parseReply(PollKind::ExtendedCharge, "#10000\r", s) == ParseResult::Invalid);
+      assert(!s.battery_charge.valid);
+    }
+    // BP missing '#' / non-digits / missing CR is Invalid
+    {
+      Snapshot s = base;
+      assert(driver.parseReply(PollKind::ExtendedCharge, "1000\r", s) == ParseResult::Invalid);
+      assert(driver.parseReply(PollKind::ExtendedCharge, "#1x00\r", s) == ParseResult::Invalid);
+      assert(driver.parseReply(PollKind::ExtendedCharge, "#1000", s) == ParseResult::Invalid);
+      assert(!s.battery_charge.valid);
+    }
+  }
+
+  // ---- ExtendedProbe: self-disable after 3 consecutive failures ----
+  {
+    ups::ExtendedProbe runtime(600000, 3);
+    assert(runtime.supports());
+    runtime.recordFailure();  // 1
+    assert(runtime.supports());
+    runtime.recordFailure();  // 2
+    assert(runtime.supports());
+    runtime.recordFailure();  // 3 -> disabled until reboot
+    assert(!runtime.supports());
+    // once disabled: never due, not re-enabled by a later success
+    assert(!runtime.due(0));
+    runtime.recordSuccess();
+    assert(!runtime.supports());
+    assert(!runtime.due(999999999));
+    runtime.reset();          // simulates reboot
+    assert(runtime.supports());
+    assert(runtime.due(0));
+
+    // rate gate: after an attempt, not due until kProbePeriodMs elapses
+    ups::ExtendedProbe charge(1000, 3);
+    assert(charge.due(0));
+    charge.markSent(0);
+    assert(!charge.due(500));
+    assert(charge.due(30000));
+
+    // two failures still supported; a success clears failures
+    charge.recordFailure();
+    charge.recordFailure();
+    assert(charge.supports());
+    assert(charge.failures() == 2);
+    charge.recordSuccess();
+    assert(charge.failures() == 0);
+  }
+
   std::cout << "Driver tests: all assertions passed\n";
 }

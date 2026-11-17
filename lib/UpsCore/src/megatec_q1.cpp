@@ -113,6 +113,50 @@ bool parseIdentity(const std::string& line, Snapshot& next) {
 }
 }
 
+// BT reply: framed with '#', total length 12 including the terminating CR,
+// wire format '#%hu %f' followed by CR. First integer = runtime remaining in
+// MINUTES -> runtime_seconds = minutes*60. The second float is unknown and
+// ignored. Strict: exact length, '#' prefix, digits for the integer.
+// runtime_seconds = minutes*60. The second float is unknown and ignored.
+// Strict: exact length, '#' prefix, digits for the integer, CR terminator.
+// BT reply: framed with '#', total length 12 including the terminating CR,
+// wire format '#%hu %f' followed by CR. First integer = runtime remaining in
+// MINUTES -> runtime_seconds = minutes*60. The second float is unknown and
+// ignored. Strict: exact length, '#' prefix, digits only for the integer,
+// CR terminator; no sscanf %s.
+bool parseExtendedRuntime(const std::string& input, Snapshot& next) {
+  if (input.size() != 12 || input.empty() || input[0] != '#' || input.back() != '\r') return false;
+  std::size_t i = 1;
+  while (i < input.size() - 1 && input[i] == ' ') ++i;  // %hu skips leading spaces
+  const std::size_t digit_start = i;
+  while (i < input.size() - 1 && input[i] >= '0' && input[i] <= '9') ++i;
+  if (i == digit_start) return false;                       // no digits
+  if (i >= input.size() - 1 || input[i] != ' ') return false; // need ' ' then float then CR
+  unsigned int minutes = 0;
+  for (std::size_t j = digit_start; j < i; ++j)
+    minutes = minutes * 10u + static_cast<unsigned int>(input[j] - '0');
+  ++i;  // skip ' '
+  if (i >= input.size() - 1) return false;                  // need the float before CR
+  (void)input.substr(i);  // float is intentionally ignored
+  next.runtime_seconds = {static_cast<float>(minutes) * 60.0f, true};
+  return true;
+}
+
+// BP reply: framed with '#', total length 6 including CR, wire format '#%d'
+// followed by CR. Integer * 0.1 = battery charge percent; accept only 0.0-100.0.
+bool parseExtendedCharge(const std::string& input, Snapshot& next) {
+  if (input.size() != 6 || input.empty() || input[0] != '#' || input.back() != '\r') return false;
+  int value = 0;
+  for (std::size_t i = 1; i < input.size() - 1; ++i) {
+    if (input[i] < '0' || input[i] > '9') return false;
+    value = value * 10 + (input[i] - '0');
+  }
+  const float charge = value * 0.1f;
+  if (charge < 0.0f || charge > 100.0f) return false;
+  next.battery_charge = {charge, true};
+  return true;
+}
+
 const DriverInfo& MegaTecQ1Driver::info() const { return kInfo; }
 std::size_t MegaTecQ1Driver::maxReplyLength() const { return kMaxLine; }
 bool MegaTecQ1Driver::frameComplete(PollKind, const std::string& buffer, uint32_t) const {
@@ -125,6 +169,8 @@ bool MegaTecQ1Driver::buildPoll(PollKind kind, std::string& bytes) const {
     case PollKind::Status: bytes = "Q1\r"; return true;
     case PollKind::Rating: bytes = "F\r"; return true;
     case PollKind::Identity: bytes = "I\r"; return true;
+    case PollKind::ExtendedRuntime: bytes = "BT\r"; return true;
+    case PollKind::ExtendedCharge: bytes = "BP\r"; return true;
   }
   return false;
 }
@@ -143,6 +189,8 @@ ParseResult MegaTecQ1Driver::parseReply(PollKind kind, const std::string& input,
     case PollKind::Status: valid = parseStatus(line,next); break;
     case PollKind::Rating: valid = parseRating(line,next); break;
     case PollKind::Identity: valid = parseIdentity(line,next); break;
+    case PollKind::ExtendedRuntime: valid = parseExtendedRuntime(input,next); break;
+    case PollKind::ExtendedCharge: valid = parseExtendedCharge(input,next); break;
   }
   if (!valid) return ParseResult::Invalid;
   state = std::move(next);
