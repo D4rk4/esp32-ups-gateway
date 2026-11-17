@@ -18,10 +18,22 @@ class ExtendedProbe {
   uint32_t failures() const { return failures_; }
 
   // Called once per failed attempt (NAK/echo/timeout/malformed).
-  void recordFailure() { ++failures_; }
+  // Returns true exactly when this failure disables the probe
+  // (supports() transitions true -> false); false otherwise.
+  bool recordFailure() {
+    const bool just_disabled = supports() && failures_ + 1u == n_failures_;
+    ++failures_;
+    return just_disabled;
+  }
   // Called after a good reply: clears the run of failures only while still
   // supported. Once disabled the query stays disabled until reboot (reset()).
-  void recordSuccess() { if (supports()) failures_ = 0; }
+  // Returns true when it cleared failures, false when the probe is disabled
+  // (no-op).
+  bool recordSuccess() {
+    if (!supports()) return false;
+    failures_ = 0;
+    return true;
+  }
   // Re-enable the query (device rebooted).
   void reset() { failures_ = 0; ever_sent_ = false; }
 

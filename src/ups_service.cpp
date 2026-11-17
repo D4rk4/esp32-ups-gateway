@@ -212,11 +212,12 @@ void UpsService::run() {
     }
     if (result==ups::ParseResult::Invalid) {
       if (kind==ups::PollKind::ExtendedRuntime || kind==ups::PollKind::ExtendedCharge) {
-        (kind==ups::PollKind::ExtendedRuntime ? runtime_probe : charge_probe).recordFailure();
-        events_.publish(EventType::ExtendedQuery,1,
-            std::string("UPS extended query ")
-            +(kind==ups::PollKind::ExtendedRuntime?"BT":"BP")
-            +" unsupported ("+reply+")");
+        auto& probe = kind==ups::PollKind::ExtendedRuntime ? runtime_probe : charge_probe;
+        if (probe.recordFailure())
+          events_.publish(EventType::ExtendedQuery,1,
+              std::string("UPS extended query ")
+              +(kind==ups::PollKind::ExtendedRuntime?"BT":"BP")
+              +" unsupported ("+reply+")");
       } else countError();
       return;
     }

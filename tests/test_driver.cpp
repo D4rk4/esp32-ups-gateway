@@ -278,12 +278,20 @@ int main() {
     assert(!runtime.supports());
     // once disabled: never due, not re-enabled by a later success
     assert(!runtime.due(0));
-    runtime.recordSuccess();
+    assert(!runtime.recordSuccess());  // success while disabled: no-op, not "just disabled"
     assert(!runtime.supports());
     assert(!runtime.due(999999999));
     runtime.reset();          // simulates reboot
     assert(runtime.supports());
     assert(runtime.due(0));
+
+    // recordFailure() returns true exactly when this failure disables the probe
+    ups::ExtendedProbe disable(600000, 3);
+    assert(!disable.recordFailure());  // 1 -> still supported
+    assert(!disable.recordFailure());  // 2 -> still supported
+    assert(disable.recordFailure());   // 3 -> just disabled
+    assert(!disable.supports());
+    assert(!disable.recordFailure());  // 4 -> still disabled, not "just disabled"
 
     // rate gate: after an attempt, not due until kProbePeriodMs elapses
     ups::ExtendedProbe charge(1000, 3);
