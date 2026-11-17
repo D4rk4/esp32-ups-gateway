@@ -1,8 +1,9 @@
 # Dependencies and protocol references
 
-The project-specific code is supplied under LICENSE. The included firmware
-also links the separately licensed Arduino-ESP32 / ESP-IDF / toolchain runtime
-components. Their upstream licenses apply to those components; this project
+The project-specific code is licensed under the GNU General Public License
+v2.0 or (at your option) any later version (SPDX: GPL-2.0-or-later), see
+LICENSE. The included firmware also links the separately licensed
+Arduino-ESP32 / ESP-IDF / toolchain runtime components. Their upstream licenses apply to those components; this project
 does not relicense them. The build downloads their source/header packages at
 the pinned versions. Keep upstream notices when redistributing modified builds.
 

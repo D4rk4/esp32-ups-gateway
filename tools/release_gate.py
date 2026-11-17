@@ -18,7 +18,7 @@ EXTENSIONS = {".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".hxx", ".ino", ".py", 
 NON_CODE = {".md", ".txt", ".example", ".yml", ".yaml"}
 SKIP_DIRS = {"__pycache__"}
 DIRECTORIES = (*SOURCE_DIRS, "tests", "firmware", "docs", "reference")
-ROOT_FILES = ("README_RU.md", "LICENSE", "THIRD_PARTY.md", "requirements.txt",
+ROOT_FILES = ("README.md", "LICENSE", "THIRD_PARTY.md", "requirements.txt",
               "platformio.ini", "partitions.csv", ".gitignore")
 REQUIRED = (*ROOT_FILES, "firmware/bootloader.bin", "firmware/partitions.bin",
             "firmware/firmware.bin", "firmware/SHA256SUMS.txt", "firmware/build-info.json",

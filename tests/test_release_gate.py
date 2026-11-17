@@ -28,7 +28,7 @@ def process(data, returncode=0):
 
 
 def fixture(root):
-    for name in ("README_RU.md", "LICENSE", "THIRD_PARTY.md", "requirements.txt",
+    for name in ("README.md", "LICENSE", "THIRD_PARTY.md", "requirements.txt",
                  "platformio.ini", "partitions.csv", ".gitignore", "src/example.cpp",
                  "lib/code.hpp", "web/index.html", "tools/semgrep-release.yml",
                  "integration/observium/esp32ups.inc.php", "tests/test_fixture.py",
@@ -1233,7 +1233,7 @@ class MutationResultTests(unittest.TestCase):
 class FreshnessTests(unittest.TestCase):
     def test_packaged_files_and_new_ino_change_fingerprint(self):
         names = ("integration/observium/esp32ups.inc.php", "firmware/SHA256SUMS.txt",
-                 "firmware/build-info.json", "README_RU.md", "docs/guide.md",
+                 "firmware/build-info.json", "README.md", "docs/guide.md",
                  "reference/source.txt", "LICENSE", "THIRD_PARTY.md", ".gitignore")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -1259,7 +1259,7 @@ class FreshnessTests(unittest.TestCase):
             self.assertIn("integration/observium/esp32ups.inc.php", files)
 
     def test_symlinks_block_public_gate_and_package(self):
-        for name in ("tools/external.py", "src/external", "README_RU.md"):
+        for name in ("tools/external.py", "src/external", "README.md"):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 base = Path(directory)
                 root = base / "root"
