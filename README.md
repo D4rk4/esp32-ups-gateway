@@ -171,7 +171,7 @@ The schedules page supports up to eight rules: one-off at UTC or weekly in a giv
 
 The scheduler does not execute missed commands retroactively. Before queuing an operation it saves a mark in NVS; on save error the command is not sent. At start and time jumps the execution window is suppressed so as not to repeat questionable operations. This is a no-resend guarantee in the described cases, not confirmation of execution by the UPS itself.
 
-Measurement history is a RAM ring of 240 records; at a 60-second interval up to four hours, after a restart it is lost. The event log is also stored in a separate flash partition: paginated CSV export is available. Recent events may remain in the buffer and be lost on sudden power-off; storage state and overflow are shown by the interface. Event clearing does not clear the SNMP trap queue. UDP syslog, like traps, does not confirm delivery.
+Measurement history is a RAM ring of 240 records; at a 60-second interval up to four hours, after a restart it is lost. The event log is also stored in a separate flash partition: paginated CSV export is available, see [PERSISTENT_LOGS.md](docs/PERSISTENT_LOGS.md). Recent events may remain in the buffer and be lost on sudden power-off; storage state and overflow are shown by the interface. Event clearing does not clear the SNMP trap queue. UDP syslog, like traps, does not confirm delivery.
 
 The administrator configures the system; the operator reads data and sends permitted UPS commands; the observer only reads data. Background reading updates do not extend the session timeout without human action. All permission restrictions are enforced server-side, independently of button visibility in the browser.
 
