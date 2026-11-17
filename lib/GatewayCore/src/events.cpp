@@ -14,6 +14,7 @@ const char* eventName(EventType t) {
     case EventType::ThresholdRaised:return "threshold_raised";case EventType::ThresholdCleared:return "threshold_cleared";
     case EventType::ScheduleResult:return "schedule_result";case EventType::ClockChanged:return "clock_changed";
     case EventType::SyslogTest:return "syslog_test";
+    case EventType::ExtendedQuery:return "extended_query";
   }return "unknown";
 }
 const char* eventMessage(EventType t) {
@@ -40,6 +41,7 @@ const char* eventMessage(EventType t) {
     case EventType::ScheduleResult:return "Schedule result";
     case EventType::ClockChanged:return "Gateway time changed";
     case EventType::SyslogTest:return "UDP syslog test; delivery not confirmed";
+    case EventType::ExtendedQuery:return "Extended UPS query {name} {result} ({detail})";
   }return "";
 }
 uint32_t powerNetTrapNumber(EventType t) {

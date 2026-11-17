@@ -4,7 +4,7 @@
 #include <vector>
 #include <string>
 namespace gateway {
-enum class EventType { LinkLost, LinkEstablished, OnBattery, PowerRestored, LowBattery, LowBatteryCleared, UpsFault, UpsFaultCleared, TestStarted, TestEnded, ShutdownPending, ShutdownCancelled, CommandQueued, CommandSent, CommandFailed, TestTrap, Startup, ThresholdRaised, ThresholdCleared, ScheduleResult, ClockChanged, SyslogTest };
+enum class EventType { LinkLost, LinkEstablished, OnBattery, PowerRestored, LowBattery, LowBatteryCleared, UpsFault, UpsFaultCleared, TestStarted, TestEnded, ShutdownPending, ShutdownCancelled, CommandQueued, CommandSent, CommandFailed, TestTrap, Startup, ThresholdRaised, ThresholdCleared, ScheduleResult, ClockChanged, SyslogTest, ExtendedQuery };
 // Keep the original aggregate order: UTC is appended and zero means unknown.
 struct Event { uint32_t seq{0}; uint64_t uptime_ms{0}; EventType type{EventType::Startup}; uint8_t severity{1}; std::string message; uint64_t utc{0}; };
 const char* eventName(EventType);

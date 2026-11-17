@@ -1,5 +1,6 @@
 #include "ups_service.hpp"
 #include "driver_registry.hpp"
+#include "ups_extended_probe.hpp"
 #include <Arduino.h>
 #include <HardwareSerial.h>
 #include <cmath>
@@ -34,6 +35,15 @@ uint32_t serialFormat(const ups::DriverInfo& info) {
 }
 void drainInput() {
   for (std::size_t n=0; n<kDrainLimit && Serial2.available()>0; ++n) Serial2.read();
+}
+// Keep only printable ASCII, capped at 32 chars, for event-logged raw replies.
+std::string sanitizeReply(const std::string& input) {
+  std::string out;
+  for (const unsigned char c : input) {
+    if (c >= 32 && c <= 126) out.push_back(static_cast<char>(c));
+  }
+  if (out.size() > 32) out.resize(32);
+  return out;
 }
 void publishObservation(EventBus& bus, EventEngine& engine, const ups::Snapshot& state) {
   for (const auto& event : engine.observe(state,uptimeMs()))
@@ -158,6 +168,11 @@ void UpsService::run() {
   const uint32_t boot_ms=millis();
   EventEngine engine;
   OptionalPoll rating,identity;
+  // Self-disabling extended probes (BT runtime / BP charge): unsupported after
+  // 3 consecutive failures until reboot, never sent more than once per period,
+  // and never allowed to touch the Q1 error counter or disconnect state.
+  ups::ExtendedProbe runtime_probe(config_.response_timeout_ms, 3), charge_probe(config_.response_timeout_ms, 3);
+  bool runtime_logged=false, charge_logged=false;
   bool initial_observation=false, status_requested=false, active=false;
   bool overflow=false, transaction_error=false, settling=false, resync=false;
   uint32_t last_status_request=0, started=0, last_byte=0, settle_started=0, settle_ms=0, resync_started=0;
@@ -183,9 +198,28 @@ void UpsService::run() {
     }
     ups::Snapshot next=snapshot();
     const auto result=driver_->parseReply(kind,buffer,next);
+    const std::string reply=sanitizeReply(buffer);
     buffer.clear();
-    if (result==ups::ParseResult::Ignored) return;
-    if (result==ups::ParseResult::Invalid) { countError(); return; }
+    if (result==ups::ParseResult::Ignored) {
+      if (kind==ups::PollKind::ExtendedRuntime || kind==ups::PollKind::ExtendedCharge) {
+        (kind==ups::PollKind::ExtendedRuntime ? runtime_probe : charge_probe).recordFailure();
+        events_.publish(EventType::ExtendedQuery,1,
+            std::string("UPS extended query ")
+            +(kind==ups::PollKind::ExtendedRuntime?"BT":"BP")
+            +" unsupported (NAK/echo)");
+      }
+      return;
+    }
+    if (result==ups::ParseResult::Invalid) {
+      if (kind==ups::PollKind::ExtendedRuntime || kind==ups::PollKind::ExtendedCharge) {
+        (kind==ups::PollKind::ExtendedRuntime ? runtime_probe : charge_probe).recordFailure();
+        events_.publish(EventType::ExtendedQuery,1,
+            std::string("UPS extended query ")
+            +(kind==ups::PollKind::ExtendedRuntime?"BT":"BP")
+            +" unsupported ("+reply+")");
+      } else countError();
+      return;
+    }
     if (kind==ups::PollKind::Status) {
       const bool reconnect=!next.connected;
       next.connected=true; next.last_success_ms=now; ++next.successful_polls;
@@ -196,6 +230,18 @@ void UpsService::run() {
       xSemaphoreTake(mutex_,portMAX_DELAY); state_=next; xSemaphoreGive(mutex_);
       initial_observation=true;
       publishObservation(events_,engine,next);
+    } else if (kind==ups::PollKind::ExtendedRuntime || kind==ups::PollKind::ExtendedCharge) {
+      // Successful extended reply: update snapshot and log the capability once.
+      xSemaphoreTake(mutex_,portMAX_DELAY); state_=std::move(next); xSemaphoreGive(mutex_);
+      bool& logged = kind==ups::PollKind::ExtendedRuntime ? runtime_logged : charge_logged;
+      if (!logged) {
+        logged=true;
+        events_.publish(EventType::ExtendedQuery,1,
+            std::string("UPS extended query ")
+            +(kind==ups::PollKind::ExtendedRuntime?"BT":"BP")
+            +" supported");
+      }
+      (kind==ups::PollKind::ExtendedRuntime ? runtime_probe : charge_probe).recordSuccess();
     } else {
       // F/I mutate only their fields; successful optional replies do not count
       // as status success and never extend connection freshness.
@@ -233,7 +279,14 @@ void UpsService::run() {
       now=millis();
       if (active && !buffer.empty() && driver_->frameComplete(kind,buffer,uint32_t(now-last_byte))) acceptFrame(now);
       if (active && uint32_t(now-started)>=config_.response_timeout_ms) {
-        countError(); resynchronize(now);
+        if (kind==ups::PollKind::ExtendedRuntime || kind==ups::PollKind::ExtendedCharge) {
+          // Extended probe timeout is not a UPS comm error: never mark
+          // disconnected, never increment errors, never delay Q1 beyond one
+          // extra response timeout. Just record the probe failure.
+          (kind==ups::PollKind::ExtendedRuntime ? runtime_probe : charge_probe).recordFailure();
+        } else {
+          countError(); resynchronize(now);
+        }
       }
     } else {
       drainInput();
@@ -281,6 +334,8 @@ void UpsService::run() {
         } else if (current.connected && current.status_valid && uint32_t(now-current.last_success_ms)<config_.stale_ms) {
           if (rating.due(now)) { kind=ups::PollKind::Rating; should_poll=true; rating.started(now); }
           else if (identity.due(now)) { kind=ups::PollKind::Identity; should_poll=true; identity.started(now); }
+          else if (runtime_probe.due(now)) { kind=ups::PollKind::ExtendedRuntime; should_poll=true; runtime_probe.markSent(now); }
+          else if (charge_probe.due(now)) { kind=ups::PollKind::ExtendedCharge; should_poll=true; charge_probe.markSent(now); }
         }
         if (should_poll) {
           std::string query;
