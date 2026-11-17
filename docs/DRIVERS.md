@@ -74,6 +74,20 @@ shutdown-active flag does not mean the output is already off.
 Q1 does not provide charge percent, remaining time, measured output frequency,
 self-test result, or battery replacement flag; the serial number is present
 only in the 60-character variant of I. This version does not invent them.
+
+Remaining time and charge come only from two optional KSTAR Megatec-EXT read
+queries. `BT\r` expects `#%hu %f\r`, exactly 12 bytes including CR; the first
+value is minutes, stored as `runtime_seconds`. `BP\r` expects `#%d\r`, exactly
+6 bytes; the value ×0.1 is charge in %, accepted 0.0–100.0. The lengths match
+the KSTAR card's own parser. Each query is probed after identity, only while
+the Q1 status is fresh and at most once per 30 s, so Q1/F/I polling is never
+delayed. After three consecutive NAK/echo/timeout/malformed replies the query
+is disabled until reboot and never sent again. A probe failure never counts as
+a UPS error, never marks the UPS disconnected and never emits "Communication
+with UPS lost". The journal records "UPS extended query BT/BP supported" on the
+first valid reply, or "UPS extended query BT/BP unsupported (<reply>)" once, at
+the moment the query is disabled; the reply is reduced to printable ASCII and
+capped at 32 characters.
 General fault and test completion fall into the local log, but do not turn into
 an unconfirmed APC trap "test failed/passed".
 

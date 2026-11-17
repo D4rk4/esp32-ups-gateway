@@ -64,7 +64,8 @@ battery temperature are absent from Q1. The KSTAR card "computes" charge and
 runtime from the voltage and its own tables; the gateway deliberately does not
 do this: an estimate without calibration for the specific batteries can make
 SNMP clients (PowerChute, NUT) shut down the servers too early or too late.
-These fields in the gateway remain "no data".
+The gateway instead asks the UPS itself with the read-only `BT`/`BP` queries
+(see below); if the UPS does not answer them, these fields remain "no data".
 
 ## Management
 
@@ -171,10 +172,12 @@ The card has profiles with additional requests: "Megatec-1-1-EXT" (`BT`, `BP`,
 `NQU`, `A1`: runtime, charge, serial number, alarm words), "Inform Pyramid DSP",
 and "Inform Forte" (`Q2`, `SEC`, `BYB`, `INN`, `ALR`, `BTT`: three-phase
 measurements and 48 alarm bits). No source shows that a single-phase Sinus EVO
-answers these requests; the `ALR` alarm labels describe three-phase models. The
-gateway does not send them. If you need to check whether your UPS answers, send
-them manually through a terminal at 2400 8N1 and save the responses — they can
-be used to add support.
+answers these requests; the `ALR` alarm labels describe three-phase models.
+The gateway sends only `BT` and `BP`, both read-only, and disables each one
+after three unanswered attempts; see [DRIVERS.md](DRIVERS.md). It does not send
+`NQU`, `A1` or the Inform requests. If you need to check whether your UPS
+answers them, send them manually through a terminal at 2400 8N1 and save the
+responses — they can be used to add support.
 
 ## Device verification
 
