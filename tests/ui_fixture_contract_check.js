@@ -4,6 +4,7 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert/strict'),path=require('path');
 const root=path.resolve(__dirname,'..');
 const html=fs.readFileSync(path.join(root,'web/index.html'),'utf8');
+assert.equal(html.indexOf('data:image/'),-1,'web/index.html must not embed data:image URIs');
 const source=html.match(/<script id="gateway-script">([\s\S]*?)<\/script>/)[1].replace(/\nboot\(\);\s*$/,'\n');
 class Element{constructor(id=''){this.id=id;this.innerHTML='';this.textContent='';this.hidden=false;this.value='';this.disabled=false;this.dataset={};this.style={};this.listeners={};this.classList={add(){},remove(){},toggle(){}};this.elements={namedItem(){return null;}};this.isConnected=true;}addEventListener(type,fn){this.listeners[type]=fn;}querySelectorAll(){return [];}querySelector(){return null;}setAttribute(key,value){this[key]=value;}appendChild(){}remove(){}focus(){}reset(){}click(){}}
 const elements=new Map();const get=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id);};
