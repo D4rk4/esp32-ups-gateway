@@ -101,7 +101,7 @@ class HarnessTests(unittest.TestCase):
             "let tick=null;global.setInterval=handler=>{tick=handler;return 1};global.clearInterval=()=>{tick=null};"
             + script +
             ";listeners[0][1]();tick();const before=calls.slice();"
-            "build.textContent='Firmware 0.2.1';tick();"
+            "build.textContent='Firmware 0.2.2';tick();"
             "console.log(JSON.stringify({event:listeners[0][0],before,after:calls,stopped:tick===null}));"
         )
         result = subprocess.run(["node", "-e", driver], capture_output=True, text=True, timeout=30)

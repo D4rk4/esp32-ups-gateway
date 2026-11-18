@@ -86,6 +86,10 @@ the 120 s verification window, configuration and the event log were preserved,
 and the UPS reconnected with no poll errors. Not verified: automatic rollback
 of an image that fails verification, an update between two different firmware
 versions (the same image was uploaded), or an upload from a real browser.
+Updating from 0.2.1 to 0.2.2 is an ordinary update by web upload or USB
+`update`: no one-time step is needed and configuration is preserved. A gateway
+still on 0.2.0 needs the one-time USB step first. The 0.2.1 to 0.2.2 update
+itself has not yet been run on hardware.
 If a gateway restarts unexpectedly, the next `startup` event in the event log
 names the reset reason (for example `task watchdog` or `panic`).
 

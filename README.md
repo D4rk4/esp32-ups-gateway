@@ -1,4 +1,4 @@
-<h1 align="center">ESP32 UPS Gateway 0.2.1</h1>
+<h1 align="center">ESP32 UPS Gateway 0.2.2</h1>
 
 <p align="center">
   <strong>Modular firmware for Olimex ESP32-POE / ESP32-POE-16MB with WROOM and 16 MB flash + MOD-RS232 on UEXT.</strong><br>
@@ -21,7 +21,7 @@
   <sub>Screenshot rendered from the UI test fixture with synthetic data; not a hardware verification. Battery capacity and runtime are fixture values: with the MegaTec Q1 driver they appear only if the UPS answers the optional BT/BP queries (see <a href="docs/DRIVERS.md">docs/DRIVERS.md</a>). See <a href="#screenshots">Screenshots</a>.</sub>
 </p>
 
-> **Verification boundary:** firmware 0.2.1 has been exercised on one ESP32-POE and Inform Sinus EVO 3000 combination; see [Tested hardware](#tested-hardware) for exactly what was and was not checked. The screenshots use synthetic data. Control commands are disabled by default; monitoring starts automatically.
+> **Verification boundary:** the hardware results were recorded with firmware 0.2.1 on one ESP32-POE and Inform Sinus EVO 3000 combination; see [Tested hardware](#tested-hardware) for exactly what was and was not checked. Release 0.2.2 has not yet been run on hardware. The screenshots use synthetic data. Control commands are disabled by default; monitoring starts automatically.
 
 ## Highlights
 
@@ -34,7 +34,7 @@
   <tr>
     <td valign="top">🔋 <b>UPS driver</b><br>MegaTec Q1 driver for Inform Sinus EVO. Control via SNMP SET (compatible with NUT <code>snmp-ups</code>) is disabled by default.</td>
     <td valign="top">📊 <b>Alarms and history</b><br>Active alarms, configurable thresholds, event log with filter and CSV, 240-measurement RAM history with graph and CSV.</td>
-    <td valign="top">🔄 <b>Updates</b><br>Two application OTA slots; configuration is stored separately and survives a normal update. The step from 0.2.0 to 0.2.1 needs a one-time USB flash (see <a href="#7-update-preserving-configuration">section 7</a>). Web update was verified on one physical board; automatic rollback has not been verified.</td>
+    <td valign="top">🔄 <b>Updates</b><br>Two application OTA slots; configuration is stored separately and survives a normal update. A gateway still on 0.2.0 needs a one-time USB flash first; from 0.2.1 onward updating is ordinary (see <a href="#7-update-preserving-configuration">section 7</a>). Web update was verified on one physical board; automatic rollback has not been verified.</td>
   </tr>
 </table>
 
@@ -306,7 +306,9 @@ Semgrep uses only local rules `tools/semgrep-release.yml`, without a cloud rule 
 
 When transitioning from 0.1.0, schema 1 configuration is read and supplemented with schema 2 fields in memory. Passwords, communities and other old values are preserved. The read itself does not overwrite the blob; the new schema is written on explicit save. Downgrade after writing schema 2 is not supported by old firmware: first use the raw copy made before updating.
 
-**Upgrading from 0.2.0 to 0.2.1 needs one USB flash; do not use web upload for this step.** Test uploads to a 0.2.0 device restarted the gateway with no HTTP response and before a new slot was selected, so the new image never started. The likely cause is a stack overflow: the 0.2.0 firmware upload handler keeps its 4 KB read buffer on the 8 KB HTTP task stack, and the computed call depth on that path exceeds the stack; no crash log was captured to confirm it. 0.2.1 moves the buffer to the heap. A 0.2.1-to-0.2.1 web update was subsequently verified on one physical board; automatic rollback remains unverified. Write the first 0.2.1 image over USB with the commands below (`update` if the device already has the OTA table, `migrate` if it still has the old single `factory` table), and **disconnect the Ethernet cable with PoE first**, as described in section 1.
+**Upgrading from 0.2.1 to 0.2.2 is an ordinary update**, by web upload or USB `update`; configuration is preserved and no one-time step is needed. **A gateway still on 0.2.0 needs the one-time USB flash described next, before any web update**; that flash installs whichever release image you write, so for this release write 0.2.2. Release 0.2.2 adds the `battery_test` output mode (`/api/status` `output_mode`; PowerNet `upsBasicOutputStatus` 15 only for a battery test with utility present and 3 for a real outage during a test; the web interface shows “On Battery (Self-Test)”), a header tab strip without gaps and a yellow load gauge above 50 %. The 0.2.1 to 0.2.2 update itself has not yet been run on hardware.
+
+**Upgrading from 0.2.0 to 0.2.1 needs one USB flash; do not use web upload for this step.** Test uploads to a 0.2.0 device restarted the gateway with no HTTP response and before a new slot was selected, so the new image never started. The likely cause is a stack overflow: the 0.2.0 firmware upload handler keeps its 4 KB read buffer on the 8 KB HTTP task stack, and the computed call depth on that path exceeds the stack; no crash log was captured to confirm it. 0.2.1 moves the buffer to the heap. A 0.2.1-to-0.2.1 web update was subsequently verified on one physical board; automatic rollback remains unverified. Write the first image of 0.2.1 or later (for this release, 0.2.2) over USB with the commands below (`update` if the device already has the OTA table, `migrate` if it still has the old single `factory` table), and **disconnect the Ethernet cable with PoE first**, as described in section 1.
 
 On 2026-11-18, the listed ESP32-POE ran 0.2.1 from `ota_0` after a USB `update`. An administrator used `curl` to POST the 0.2.1 `firmware.bin` (1,049,840 bytes) to `/api/firmware` with the same headers as the UI. After about 6 s it returned `{"ok":true,"rebooting":true}`; within about 10 s the gateway was reachable with a new boot ID, running from `ota_1` and reporting “Gateway started; reset reason: software restart”. Web update was offered again and the gateway remained on `ota_1` after the 120 s confirmation window. Configuration and the persistent event log were preserved, and UPS communication resumed with 0 poll errors. This did not verify automatic rollback, an update between different versions, or an upload driven by a real browser.
 
