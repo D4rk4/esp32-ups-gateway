@@ -10,9 +10,9 @@ command confirmation.
 **The load gauge** is based on the original APC `#gauge`: a narrow vertical
 scale with 20 raised segments and a large number beside it. The value shown is
 the real UPS load percentage. Current, power in watts, and the PDU breaker
-rating are not invented. Green means below 80% of the configured threshold,
-yellow means approaching the threshold, and red means the value is at the
-threshold or above. This is a visual indication; the active alarm separately
+rating are not invented. Red means the value is at or above a valid configured
+threshold; otherwise yellow means above 50% and green means 50% or below. The
+warning is independent of the threshold. This is a visual indication; the active alarm separately
 accounts for the exceedance and the configured delay. The threshold is taken
 from the active `status.thresholds.alarm_load_high` for all roles. When the
 value is unavailable, the segments are inactive and the number is replaced with

@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import struct
 import subprocess
 import sys
@@ -13,11 +14,15 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-MODULE = Path(os.path.abspath(__file__)).parents[1] / "tools" / "flash.py"
+ROOT = Path(os.path.abspath(__file__)).parents[1]
+MODULE = ROOT / "tools" / "flash.py"
 spec = importlib.util.spec_from_file_location("gateway_flash", MODULE)
 flash = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = flash
 spec.loader.exec_module(flash)
+
+FIXTURE_API = ROOT / "tests" / "ui_fixture_api.js"
+SEMVER = re.compile(r"(?<![\d.])\d+\.\d+\.\d+(?!\d|\.\d)")
 
 
 OTA_ENTRIES = [
@@ -710,6 +715,18 @@ class FlashTests(unittest.TestCase):
             with self.assertRaises(flash.FlashError):
                 self.invoke("update", recorder)
             self.assertEqual(recorder.commands, [])
+
+    def test_fixture_version_literals_match_platformio_ini(self):
+        """The UI fixture must carry the release version from platformio.ini."""
+        version = flash.firmware_version(ROOT)
+        literals = {literal for literal in SEMVER.findall(FIXTURE_API.read_text(encoding="utf-8"))}
+        self.assertEqual(literals, {version},
+                         "tests/ui_fixture_api.js firmware literals must equal platformio.ini version "
+                         "(run python tools/make_ui_fixture.py after editing the fixture)")
+
+    def test_semver_pattern_finds_a_version_that_ends_a_sentence(self):
+        self.assertEqual(SEMVER.findall("was 0.2.0. Now 0.2.1, not 0.2.0.1 or 10.2.30 or v1.2.3"),
+                         ["0.2.0", "0.2.1", "10.2.30", "1.2.3"])
 
 
 if __name__ == "__main__":
