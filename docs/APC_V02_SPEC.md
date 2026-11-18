@@ -1,11 +1,13 @@
 # APC-style web management — version 0.2.0
 
+> Historical specification of version 0.2.0, which had one `factory` slot and
+> USB-only updates. Current OTA layout and update rules — in [OTA.md](OTA.md).
+
 ## User goal and implementation choice
 
-The user supplied `apc_hw02_aos394_rpdu_393.exe` and asked to extract its web
-logic, appearance and layout. They then explicitly requested extending the
-ESP32 API for missing interface functions, a new firmware/source ZIP, browser
-validation and screenshots delivered separately from that ZIP.
+The user explicitly requested extending the ESP32 API for missing interface
+functions, a new firmware/source ZIP, browser validation and screenshots
+delivered separately from that ZIP.
 
 Build on working 0.1.0 and its modular driver architecture. Port the classic
 APC navigation and management workflows to the UPS gateway. Keep the clear
@@ -222,8 +224,6 @@ scheduler no catch-up/replay, CSV, and browser form/API roundtrips.
 ## Deliverables and verification
 
 Compile actual firmware0.2.0, retain single-slot flash tools and source in ZIP.
-Include extracted reference source and provenance under reference/apc-webui/,
-separately attributed. Original firmware executables are not needed in ZIP.
 Browser screenshots must exercise the new production HTML with clearly marked
 synthetic API fixtures if hardware is unavailable, including overview,
 control review, data/events, administration, and loss-of-link/error state.

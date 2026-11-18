@@ -79,7 +79,6 @@ needed.
 | `node --check tests/ui_fixture_api.js` | Syntax verified |
 | Web gzip packaging and stand content | Client app content matches |
 | Verification of new flash images and dry-run update | Headers, sizes, table, and SHA-256 verified; no hardware write |
-| Extracted APC reference | Hashes/sizes of 162 resources verified, CRC ddf.zip, 581 field descriptions without errors |
 | Independent limited review | Found UI freshness defect fixed and rechecked |
 
 Native suite: auth, config, config_json, config_v02, driver, events,

@@ -8,8 +8,7 @@ SNMP APC PowerNet subset for Observium CE; SNMP traps; web dashboard and
 configuration/control; a single application slot; persistent configuration
 across normal serial firmware updates; modular UPS drivers.
 
-The supplied KPM220/DL801 archive is a behavioral reference, not source code
-for this target. Inform Sinus EVO speaks MegaTec Q1; the selectable driver is
+Inform Sinus EVO speaks MegaTec Q1; the selectable driver is
 `megatec_q1`. Never manufacture charge/runtime or claim hardware validation
 that was not actually performed. Destructive controls require an explicit
 configuration opt-in and per-command confirmation. No automated output cycling.
@@ -51,7 +50,7 @@ bundled firmware image has been rebuilt with this factory-login change; it has
 not been tested on physical hardware.
 
 Deliver full source, tested ESP32 build if environment permits, raw split
-flash images, SHA256 checksums, Russian build/install/operation docs,
+flash images, SHA256 checksums, English build/install/operation docs,
 driver-extension guide and Observium CE trap receiver example. Never ship
 a merged image that overwrites appcfg with padding.
 

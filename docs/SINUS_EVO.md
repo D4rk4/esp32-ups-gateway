@@ -113,7 +113,7 @@ permissions. Delays are fixed: immediate off is 12 s (`S.2`), graceful is 1 min,
 on is after 3 min. `noError` on SET means "command accepted into queue", as in
 the web interface. Whether the UPS stays off after grid return (`shutdown.stayoff`
 in NUT) has not been verified on Sinus EVO. The table of objects, values, and
-error codes is in [OIDS.md](OIDS.md#snmp-control).
+error codes is in [OIDS.md](OIDS.md#ups-management-over-snmp).
 
 The KSTAR card sends to the same SNMP commands: reboot → `S.2R0000`, sleep →
 `S.2R<min>`, flash-and-beep → `Q`. The gateway repeats this, except `R0000`

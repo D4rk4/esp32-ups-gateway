@@ -1,19 +1,11 @@
 # Porting the APC Interface and ESP32 API — 0.2.0
 
-## What was taken from the reference
-
-The source is a user's `apc_hw02_aos394_rpdu_393.exe`: AOS 3.9.4 and RPDU
-3.9.3. It is the control board of a Rack PDU power distribution unit. From it,
-162 registered resources were statically extracted: 127 HTML templates and
-helper fragments, one CSS, 33 images, and `ddf.zip`. The dictionaries of
-compressed strings, form field descriptions, and the available template
-branches were recovered. Checksums and parsing constraints are in
-`reference/apc-webui/`.
+## What the interface carries over
 
 The working interface carries over the main tabs Home / Device Manager / Logs /
 Administration, the side navigation, the 750 px shell width, the 140 px side
-menu, Verdana, the blue-grey palette, the table styling, the original
-background/tab images, and the two-step command confirmation.
+menu, Verdana, the blue-grey palette, the table styling, and the two-step
+command confirmation.
 
 **The load gauge** is based on the original APC `#gauge`: a narrow vertical
 scale with 20 raised segments and a large number beside it. The value shown is
