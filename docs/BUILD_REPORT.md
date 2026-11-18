@@ -28,12 +28,19 @@ sessions, out-of-memory handling, and load gauge freshness. Firmware and UI
 sources were not changed after this build; documentation and packaging are
 separate.
 
-**No screenshots were obtained.** The managed browser declined opening the local
-`file://` stand by URL policy: only HTTP/HTTPS are allowed; bypass via another
-browser/surface was also rejected. The attempt was stopped. Neither browser
-rendering nor real clicks in the browser were verified. Mockups and
-programmatically drawn images instead of screenshots were not created. A user
-request to validate screenshots remains unfulfilled.
+**At the time of this build, no screenshots were obtained.** The managed browser
+declined opening the local `file://` stand by URL policy: only HTTP/HTTPS are
+allowed; bypass via another browser/surface was also rejected. The attempt was
+stopped. At that point neither browser rendering nor real clicks in the browser
+were verified. Mockups and programmatically drawn images instead of screenshots
+were not created. The user request to validate the UI through screenshots is
+met only in part by the later addition below: those screenshots are fixture
+renders and do not validate the UI on hardware or with real mouse interaction.
+
+**Later addition:** `docs/screenshots/` holds images rendered from
+`tests/ui_fixture.html` with synthetic data in headless Firefox. They are
+produced by `tools/make_screenshots.py`. They show that the fixture renders in a
+browser, but real mouse interaction and a physical board remain unverified.
 
 A separate `tests/ui_fixture.html` contains the real client code and explicitly
 marked synthetic API for local viewing. The test handler does not access the

@@ -1,8 +1,97 @@
-# ESP32 UPS Gateway 0.2.1
+<h1 align="center">ESP32 UPS Gateway 0.2.1</h1>
 
-Modular firmware for **Olimex ESP32-POE / ESP32-POE-16MB with WROOM and 16 MB flash + MOD-RS232 on UEXT**. Monitoring via APC PowerNet SNMPv2c, traps, web interface in English, UPS control through a separate UPS driver.
+<p align="center">
+  <strong>Modular firmware for Olimex ESP32-POE / ESP32-POE-16MB with WROOM and 16 MB flash + MOD-RS232 on UEXT.</strong><br>
+  Monitoring via APC PowerNet SNMPv2c, traps, web interface in English, UPS control through a separate UPS driver.
+</p>
 
-**Verification boundary:** the project is built for ESP32 and tested on a computer. There is no physical ESP32 / Inform Sinus EVO in this environment. For Inform Sinus EVO the MegaTec Q1 driver is supported. Control commands are disabled by default. Monitoring starts automatically.
+<p align="center">
+  <img alt="License: GPL-2.0-or-later" src="https://img.shields.io/badge/license-GPL--2.0--or--later-blue">
+  <img alt="Platform: ESP32, Olimex ESP32-POE" src="https://img.shields.io/badge/platform-ESP32%20%7C%20Olimex%20ESP32--POE-informational">
+  <img alt="Framework: Arduino" src="https://img.shields.io/badge/framework-Arduino-teal">
+  <img alt="Protocol: SNMPv2c" src="https://img.shields.io/badge/protocol-SNMPv2c-green">
+  <img alt="UPS driver: MegaTec Q1" src="https://img.shields.io/badge/UPS%20driver-MegaTec%20Q1-orange">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/overview.png" width="760" alt="Web interface, Home, Overview: No Active Alarms and a Quick Status panel with UPS Load and Battery Capacity gauges, input and output voltage, mode and remaining runtime (synthetic test data)">
+</p>
+
+<p align="center">
+  <sub>Screenshot rendered from the UI test fixture with synthetic data; not a hardware verification. Battery capacity and runtime are fixture values: with the MegaTec Q1 driver they appear only if the UPS answers the optional BT/BP queries (see <a href="docs/DRIVERS.md">docs/DRIVERS.md</a>). See <a href="#screenshots">Screenshots</a>.</sub>
+</p>
+
+> **Verification boundary:** firmware 0.2.1 has been exercised on one ESP32-POE and Inform Sinus EVO 3000 combination; see [Tested hardware](#tested-hardware) for exactly what was and was not checked. The screenshots use synthetic data. Control commands are disabled by default; monitoring starts automatically.
+
+## Highlights
+
+<table>
+  <tr>
+    <td width="33%" valign="top">🔌 <b>Network</b><br>Ethernet LAN8720, DHCP or static IPv4. No Wi-Fi configuration.</td>
+    <td width="33%" valign="top">📡 <b>SNMPv2c</b><br>GET/GETNEXT/GETBULK, PowerNet MIB subset, UPS link status and traps; two trap receivers with separate communities and ports.</td>
+    <td width="33%" valign="top">🖥️ <b>Web interface</b><br>Classic APC layout in English, embedded in the application; session login with administrator/operator/observer roles.</td>
+  </tr>
+  <tr>
+    <td valign="top">🔋 <b>UPS driver</b><br>MegaTec Q1 driver for Inform Sinus EVO. Control via SNMP SET (compatible with NUT <code>snmp-ups</code>) is disabled by default.</td>
+    <td valign="top">📊 <b>Alarms and history</b><br>Active alarms, configurable thresholds, event log with filter and CSV, 240-measurement RAM history with graph and CSV.</td>
+    <td valign="top">🔄 <b>Updates</b><br>Two application OTA slots; configuration is stored separately and survives a normal update. The step from 0.2.0 to 0.2.1 needs a one-time USB flash (see <a href="#7-update-preserving-configuration">section 7</a>). Web update was verified on one physical board; automatic rollback has not been verified.</td>
+  </tr>
+</table>
+
+The complete feature list is in [What's included](#whats-included).
+
+## Screenshots
+
+The screenshots below are rendered from the UI test fixture (`tests/ui_fixture.html`) with synthetic data in headless Firefox. They are illustrations of the interface, not a hardware verification: no physical UPS or ESP32 board was involved. See [9. New interface preview](#9-new-interface-preview).
+
+<table>
+  <tr>
+    <td width="50%" valign="top" align="center">
+      <a href="docs/screenshots/alarm-status-high-load.png"><img src="docs/screenshots/alarm-status-high-load.png" width="400" alt="Home, Alarm Status in the synthetic high-load scenario: one warning for load above the 90% threshold, with the alarm threshold settings below"></a><br>
+      <sub><b>Home / Alarm Status</b>: active warning and configurable thresholds (synthetic high-load state)</sub>
+    </td>
+    <td width="50%" valign="top" align="center">
+      <a href="docs/screenshots/event-log.png"><img src="docs/screenshots/event-log.png" width="400" alt="Logs, Events: filter by level and text, event table, CSV export and persistent event storage status"></a><br>
+      <sub><b>Logs / Events</b>: level and text filter, paging, CSV export and storage status</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top" align="center">
+      <a href="docs/screenshots/device-status.png"><img src="docs/screenshots/device-status.png" width="400" alt="Device Manager, Status: UPS status flags, a measurements table with validity per value, and gateway and network details"></a><br>
+      <sub><b>Device Manager / Status</b>: UPS status, measurements with validity, gateway and network details</sub>
+    </td>
+    <td width="50%" valign="top" align="center">
+      <a href="docs/screenshots/history-graph.png"><img src="docs/screenshots/history-graph.png" width="400" alt="Logs, Data: line graph of input voltage over time, a table of recent samples, CSV export and the data collection interval setting"></a><br>
+      <sub><b>Logs / Data</b>: RAM history graph, sample table, CSV export and collection interval</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top" align="center">
+      <a href="docs/screenshots/firmware-update.png"><img src="docs/screenshots/firmware-update.png" width="400" alt="Administration, Firmware: current version, notes on unsigned images and a firmware image upload form"></a><br>
+      <sub><b>Administration / Firmware</b>: update page for <code>firmware.bin</code></sub>
+    </td>
+    <td width="50%" valign="top">
+      <b>Also in the interface</b> (not pictured): Control, Serial / UPS, Schedules, Security, Network, Notification, General, About / Capabilities.
+    </td>
+  </tr>
+</table>
+
+## Contents
+
+- [Highlights](#highlights) and [Screenshots](#screenshots)
+- [What's included](#whats-included)
+- [Tested hardware](#tested-hardware)
+- [1. Connecting hardware](#1-connecting-hardware)
+- [2. Quick install of ready firmware](#2-quick-install-of-ready-firmware)
+- [3. UPS primary setup](#3-ups-primary-setup)
+- [4. Observium CE and traps](#4-observium-ce-and-traps)
+- [5. Control](#5-control)
+- [6. Build from sources](#6-build-from-sources)
+- [7. Update preserving configuration](#7-update-preserving-configuration)
+- [8. Modularity and verification](#8-modularity-and-verification)
+- [9. New interface preview](#9-new-interface-preview)
+- [Documentation](#documentation)
+- [License](#license)
 
 ## What's included
 
@@ -19,7 +108,17 @@ Modular firmware for **Olimex ESP32-POE / ESP32-POE-16MB with WROOM and 16 MB fl
 - Two application OTA slots; configuration stored separately and survives a normal update.
 - Ready binaries in `firmware/`, full source code, configuration integrity-checking install script.
 
-No full copy of the APC network card or KPM220 is included here: SMTP, WoL, SNMPv3, INFORM, HTTPS, RADIUS, SSH/Telnet and FTP are not implemented. Firmware can be updated in two ways: over USB, or over HTTP by a logged-in administrator (the image goes to the inactive of the two OTA slots; a new image that does not bring up the configuration, Ethernet and an IP address within 120 seconds is rolled back by the SDK). Web update and rollback have not been verified on a physical board; details in [docs/OTA.md](docs/OTA.md). PDU outlets are not created from nothing: commands and data depend on the UPS driver. Function/API porting map — `docs/APC_PORT.md`.
+No full copy of the APC network card or KPM220 is included here: SMTP, WoL, SNMPv3, INFORM, HTTPS, RADIUS, SSH/Telnet and FTP are not implemented. Firmware can be updated in two ways: over USB, or over HTTP by a logged-in administrator (the image goes to the inactive of the two OTA slots; a new image that does not bring up the configuration, Ethernet and an IP address within 120 seconds is rolled back by the SDK). A same-version web update was verified on one physical board; automatic rollback has not been verified. See [Tested hardware](#tested-hardware) and [docs/OTA.md](docs/OTA.md). PDU outlets are not created from nothing: commands and data depend on the UPS driver. Function/API porting map — `docs/APC_PORT.md`.
+
+## Tested hardware
+
+Results below are from 2026-11-18 on the exact combination listed, not a claim for other models or sizes.
+
+| UPS | Gateway board | Firmware | Verified | Not verified |
+| --- | --- | --- | --- | --- |
+| Inform Sinus EVO 3000, UPS firmware `V142B000D0`; `megatec_q1`, RS-232 2400 8N1 | Olimex ESP32-POE, ESP32-D0WD-V3 rev 3, 16 MB flash, MOD-RS232 | 0.2.1 | Q1 polling with 0 errors; `F` and `I` responses (nominal 220 V / 13 A / 72 V / 50 Hz and UPS firmware); read-only `BT`/`BP` (100% charge and 2820 s / 47 min runtime at 13–14% load); USB `update`; same-version web update; configuration and persistent event log preserved across restart; SNMP read (GET/GETNEXT/GETBULK); battery test start from the web UI (`test_deep`); test cancel over SNMP SET (`test_cancel`) | Automatic rollback of a bad image; other SNMP SET objects (output off, reboot/restart, beeper, turn-on/shutdown cancel, short test); SNMP traps; syslog; schedules; an update between two different firmware versions; an upload from a real browser; web-UI beeper, short/timed test, output off/restart and shutdown cancel; deep-test completion at battery low; Sinus EVO 1000/2000 and any other UPS model or brand |
+
+The journal reported “UPS extended query BT supported” and “UPS extended query BP supported”. SNMPv2c GET, GETNEXT and GETBULK returned 7 system objects and 22 PowerNet objects matching the web status at the same moment, including output status 15 during the test. Missing objects returned `noSuchInstance`; a wrong community and SNMPv1 received no answer. The deep test ran for about 22 minutes with utility present, from 15:54 until cancellation; the UPS test bit was set, reported charge fell from 100% to 53%, and runtime from 2820 s to 1500 s. It did not reach battery low. The SNMPv2c SET to `upsAdvTestRuntimeCalibration` (`1.3.6.1.4.1.318.1.1.1.7.2.5.0`) with value `3` returned `noError`; the journal recorded `test_cancel` queued, transmitted and then “Test ended”. Within 5 s the output status changed from 15 to 2 and the web status showed `test_running=false`.
 
 ## 1. Connecting hardware
 
@@ -76,7 +175,7 @@ python tools/flash.py --dry-run install
 
 ### First launch and web interface login
 
-**Important:** `firmware/firmware.bin` is rebuilt from current sources and contains the factory login described below. Verification on a physical board was not performed. On updating, existing username and password are preserved and are not automatically changed.
+**Important:** `firmware/firmware.bin` is rebuilt from current sources and contains the factory login described below. The same-version hardware update described in [Tested hardware](#tested-hardware) did not verify a fresh installation or factory login. On updating, existing username and password are preserved and are not automatically changed.
 
 For a new configuration in firmware built from current sources, the administrator username and password are `ups` / `ups`. These are publicly available weak credentials: immediately after logging in, replace the password with a unique one at least 12 characters long, and use only a trusted management network. An exception to the minimum length is allowed only for the exact factory pair `ups` / `ups`.
 
@@ -101,7 +200,7 @@ Initial parameters: driver `megatec_q1`, **2400 8N1**, period 2000 ms, response 
 3. "Protocol diagnostics" shows the last accepted Q1 string and status bits.
 4. If there is no connection, check the cable and UART parameters. Do not enable control commands to find the protocol.
 
-Q1 does not report reliable charge percentages and remaining runtime; they are shown as unavailable. Measured input frequency is not reported as output frequency. A general fault is not reported as battery replacement or selftest failure.
+Q1 alone does not report charge percentage or remaining runtime; the optional read-only `BT` and `BP` queries supply them when supported, otherwise they are unavailable. Both answered on the tested Sinus EVO 3000. Measured input frequency is not reported as output frequency. A general fault is not reported as battery replacement or selftest failure.
 
 On the main page load is shown as a number and a vertical APC-style segment bar. The value is taken from `load_percent`, the threshold from current alarm parameters. On an unavailable/stale measurement the indicator becomes inactive: loss of connection is not shown as 0% load.
 
@@ -207,7 +306,9 @@ Semgrep uses only local rules `tools/semgrep-release.yml`, without a cloud rule 
 
 When transitioning from 0.1.0, schema 1 configuration is read and supplemented with schema 2 fields in memory. Passwords, communities and other old values are preserved. The read itself does not overwrite the blob; the new schema is written on explicit save. Downgrade after writing schema 2 is not supported by old firmware: first use the raw copy made before updating.
 
-**Upgrading from 0.2.0 to 0.2.1 needs one USB flash; do not use web upload for this step.** Test uploads to a 0.2.0 device restarted the gateway with no HTTP response and before a new slot was selected, so the new image never started. The likely cause is a stack overflow: the 0.2.0 firmware upload handler keeps its 4 KB read buffer on the 8 KB HTTP task stack, and the computed call depth on that path exceeds the stack; no crash log was captured to confirm it. 0.2.1 moves the buffer to the heap, so web update can be used from 0.2.1 onward; this has not been verified on a physical board. Write the first 0.2.1 image over USB with the commands below (`update` if the device already has the OTA table, `migrate` if it still has the old single `factory` table), and **disconnect the Ethernet cable with PoE first**, as described in section 1.
+**Upgrading from 0.2.0 to 0.2.1 needs one USB flash; do not use web upload for this step.** Test uploads to a 0.2.0 device restarted the gateway with no HTTP response and before a new slot was selected, so the new image never started. The likely cause is a stack overflow: the 0.2.0 firmware upload handler keeps its 4 KB read buffer on the 8 KB HTTP task stack, and the computed call depth on that path exceeds the stack; no crash log was captured to confirm it. 0.2.1 moves the buffer to the heap. A 0.2.1-to-0.2.1 web update was subsequently verified on one physical board; automatic rollback remains unverified. Write the first 0.2.1 image over USB with the commands below (`update` if the device already has the OTA table, `migrate` if it still has the old single `factory` table), and **disconnect the Ethernet cable with PoE first**, as described in section 1.
+
+On 2026-11-18, the listed ESP32-POE ran 0.2.1 from `ota_0` after a USB `update`. An administrator used `curl` to POST the 0.2.1 `firmware.bin` (1,049,840 bytes) to `/api/firmware` with the same headers as the UI. After about 6 s it returned `{"ok":true,"rebooting":true}`; within about 10 s the gateway was reachable with a new boot ID, running from `ota_1` and reporting “Gateway started; reset reason: software restart”. Web update was offered again and the gateway remained on `ota_1` after the 120 s confirmation window. Configuration and the persistent event log were preserved, and UPS communication resumed with 0 poll errors. This did not verify automatic rollback, an update between different versions, or an upload driven by a real browser.
 
 After receiving a new package version or running `tools/build.py`, perform a one-time USB transition from the old `factory` table:
 
@@ -318,7 +419,33 @@ Recreating after UI change:
 python tools/make_ui_fixture.py
 ```
 
-The volume of actual verification performed, including presence or absence of browser rendering, is recorded in `docs/BUILD_REPORT.md`. The presence of the test HTML itself does not mean the interface is verified with screenshots.
+The volume of actual verification performed, including presence or absence of browser rendering, is recorded in `docs/BUILD_REPORT.md`. The screenshots in `docs/screenshots/` were rendered from this test fixture with synthetic data in headless Firefox, with the fixture's own test bar hidden; they illustrate the interface only. Neither the test HTML nor the screenshots mean that the interface is verified on a physical board.
+
+Regenerating the screenshots (Firefox is required; `--firefox PATH` and `--out DIR` are optional):
+
+```bash
+python tools/make_screenshots.py
+```
+
+## Documentation
+
+| File | Contents |
+| --- | --- |
+| [docs/SPEC.md](docs/SPEC.md) | Historical specification version 0.1.0 (0.2.0 changes: `APC_V02_SPEC.md`, `APC_PORT.md`; OTA layout: `OTA.md`) |
+| [docs/HARDWARE.md](docs/HARDWARE.md) | Connecting ESP32-POE-16MB and MOD-RS232 |
+| [docs/OTA.md](docs/OTA.md) | Firmware update and recovery |
+| [docs/OIDS.md](docs/OIDS.md) | Implemented SNMP interface |
+| [docs/DRIVERS.md](docs/DRIVERS.md) | Serial protocol drivers |
+| [docs/SINUS_EVO.md](docs/SINUS_EVO.md) | Inform Sinus EVO: gateway capabilities and RS-232 protocol |
+| [docs/KSTAR_PROTOCOL.md](docs/KSTAR_PROTOCOL.md) | KSTAR KPM220 MegaTec protocol notes |
+| [docs/PERSISTENT_LOGS.md](docs/PERSISTENT_LOGS.md) | Persistent event log |
+| [docs/UI_API_COVERAGE.md](docs/UI_API_COVERAGE.md) | UI / API coverage |
+| [docs/APC_PORT.md](docs/APC_PORT.md) | Porting the APC interface and ESP32 API (0.2.0) |
+| [docs/APC_V02_SPEC.md](docs/APC_V02_SPEC.md) | Historical specification of the APC-style web management, version 0.2.0 |
+| [docs/BUILD_REPORT.md](docs/BUILD_REPORT.md) | Release 0.2.0 verification report (historical) |
+| [docs/releases/BUILD_0.1.0.md](docs/releases/BUILD_0.1.0.md) | Release 0.1.0 verification report |
+| [integration/observium/README.md](integration/observium/README.md) | Connecting to Observium CE |
+| [THIRD_PARTY.md](THIRD_PARTY.md) | Dependencies, protocol references and third-party licences |
 
 ## License
 
