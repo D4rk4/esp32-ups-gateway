@@ -106,7 +106,7 @@ The screenshots below are rendered from the UI test fixture (`tests/ui_fixture.h
 - Two trap receivers with separate communities and ports.
 - Settings export/import, random SNMP community, web password recovery over USB.
 - Two application OTA slots; configuration stored separately and survives a normal update.
-- Ready binaries in `firmware/`, full source code, configuration integrity-checking install script.
+- Prebuilt images on GitHub Releases, full source code, configuration integrity-checking install script.
 
 No full copy of the APC network card or KPM220 is included here: SMTP, WoL, SNMPv3, INFORM, HTTPS, RADIUS, SSH/Telnet and FTP are not implemented. Firmware can be updated in two ways: over USB, or over HTTP by a logged-in administrator (the image goes to the inactive of the two OTA slots; a new image that does not bring up the configuration, Ethernet and an IP address within 120 seconds is rolled back by the SDK). A same-version web update (0.2.1 to 0.2.1) and a web update from 0.2.1 to 0.2.2 were verified on one physical board; automatic rollback has not been verified. See [Tested hardware](#tested-hardware) and [docs/OTA.md](docs/OTA.md). PDU outlets are not created from nothing: commands and data depend on the UPS driver. Function/API porting map — `docs/APC_PORT.md`.
 
@@ -144,7 +144,9 @@ Check your UPS connector and revision. Do not carry over the old MegaTec 9/6/7 p
 
 ## 2. Quick install of ready firmware
 
-Python 3.10+ and your board's USB-UART driver are needed. Unpack the archive and open a terminal in the `esp32-ups-gateway` directory.
+Download the prebuilt images from [GitHub Releases](https://github.com/D4rk4/esp32-ups-gateway/releases). To verify the three `.bin` files against `SHA256SUMS.txt`, put them together and run `sha256sum -c SHA256SUMS.txt` on Linux or `shasum -a 256 -c SHA256SUMS.txt` on macOS.
+
+Python 3.10+ and your board's USB-UART driver are needed. Unpack the matching GitHub source archive and open a terminal in its `esp32-ups-gateway-...` directory. Create a `firmware/` directory there and put the downloaded images and `SHA256SUMS.txt` in it.
 
 ### Windows, PowerShell
 

@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    env:
+      PLATFORMIO_SETTING_ENABLE_TELEMETRY: 'no'
+      CXX: clang++
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.11'
+      - name: Check version and release notes
+        id: version
+        run: |
+          version=$(python -c 'from pathlib import Path; from tools.flash import firmware_version; print(firmware_version(Path(".")))')
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            printf 'Tag %s does not match firmware version v%s\n' "$GITHUB_REF_NAME" "$version" >&2
+            exit 1
+          fi
+          if [[ ! -f "docs/releases/$version.md" ]]; then
+            printf 'Missing release notes: docs/releases/%s.md\n' "$version" >&2
+            exit 1
+          fi
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+      - name: Install pinned dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          python -m platformio pkg install -e esp32-poe-16mb
+      - name: Run checks
+        run: |
+          python tools/embed_web.py
+          python tools/test_host.py
+          python tools/test_host.py --sanitize
+          python tools/test_event_bus.py
+          python tests/http_adapter/run.py
+          python tests/web_ui_check.py
+          node tests/ui_fixture_contract_check.js
+          python -m unittest discover -s tests -p 'test_*.py'
+          python tools/make_ui_fixture.py
+          git diff --exit-code -- tests/ui_fixture.html
+      - name: Build flashable images
+        run: |
+          python tools/build.py
+          for file in firmware.bin bootloader.bin partitions.bin SHA256SUMS.txt build-info.json; do
+            test -s "firmware/$file"
+          done
+      - name: Upload build outputs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-images
+          if-no-files-found: error
+          path: |
+            firmware/firmware.bin
+            firmware/bootloader.bin
+            firmware/partitions.bin
+            firmware/SHA256SUMS.txt
+            firmware/build-info.json
+
+  release:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-images
+          path: firmware
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            firmware/firmware.bin firmware/bootloader.bin firmware/partitions.bin \
+            firmware/SHA256SUMS.txt firmware/build-info.json \
+            --title "ESP32 UPS Gateway $VERSION" \
+            --notes-file "docs/releases/$VERSION.md" \
+            --verify-tag
