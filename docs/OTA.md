@@ -26,9 +26,11 @@ separate last operation. With the old table, `0xE000–0xFFFF` was not used by
 any partition, so its erasure does not delete data from the previous
 installation. Erasing `otadata` selects `ota_0` at the next boot. According to
 the stock bootloader code, at the first boot with an empty `otadata` and no
-`factory`, the bootloader itself writes the correct `ota_0` selection record;
-this allows rollback after the first web update, but it has not yet been
-verified on physical hardware. Writing the new table last allows repeating
+`factory`, the bootloader itself writes the correct `ota_0` selection record.
+After `update` (not `migrate`) the first boot was observed to run from `ota_0`;
+the serial console printed `Running partition: ota_0; OTA image state: 2`.
+Rollback after the first web update is still not verified on physical
+hardware. Writing the new table last allows repeating
 `migrate` if the connection was interrupted after writing the application but
 before completing the erasure of `otadata`: the old table is still in place.
 Do not disconnect or restart power until the script reports successful
@@ -74,8 +76,16 @@ before a new slot was selected. The likely cause is a stack overflow: its upload
 handler keeps a 4 KB buffer on the 8 KB HTTP task stack, and the computed call
 depth on that path exceeds the stack; no crash log was captured to confirm it.
 The step from 0.2.0 to 0.2.1 therefore needs one USB
-`update` (or `migrate`) with the PoE Ethernet cable disconnected; web update is
-intended to work from 0.2.1 onward but has not been verified on a physical board.
+`update` (or `migrate`) with the PoE Ethernet cable disconnected; web update
+was verified from 0.2.1 onward: a whole `firmware.bin` uploaded over
+`POST /api/firmware` as a logged-in administrator with the CSRF token,
+`Content-Type: application/octet-stream` and `X-Firmware-Confirm: UPDATE`
+answered `{"ok":true,"rebooting":true}` within about 6 s, rebooted to the other
+slot (`ota_1`), and came back with a new boot id; it stayed on `ota_1` after
+the 120 s verification window, configuration and the event log were preserved,
+and the UPS reconnected with no poll errors. Not verified: automatic rollback
+of an image that fails verification, an update between two different firmware
+versions (the same image was uploaded), or an upload from a real browser.
 If a gateway restarts unexpectedly, the next `startup` event in the event log
 names the reset reason (for example `task watchdog` or `panic`).
 

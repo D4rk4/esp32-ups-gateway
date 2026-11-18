@@ -7,7 +7,7 @@ with `CR` (`\r`).
 
 Sources:
 - real exchange with the owner's Sinus EVO 3000 (Q1, F, I; 365 polls without
-  errors);
+  errors; `BT` and `BP` answered);
 - static analysis of the SNMP card firmware KSTAR KPM220 v1.4.27 (`kstar-snmp`)
   and its web interface — details and addresses in [KSTAR_PROTOCOL.md](KSTAR_PROTOCOL.md);
 - publicly available MegaTec protocol description.
@@ -65,7 +65,9 @@ runtime from the voltage and its own tables; the gateway deliberately does not
 do this: an estimate without calibration for the specific batteries can make
 SNMP clients (PowerChute, NUT) shut down the servers too early or too late.
 The gateway instead asks the UPS itself with the read-only `BT`/`BP` queries
-(see below); if the UPS does not answer them, these fields remain "no data".
+(see below); the owner's Sinus EVO 3000 answered both, and the status showed
+battery charge 100 % and runtime 2820 s (47 minutes) at 13–14 % load, mains
+present. If a UPS does not answer them, these fields remain "no data".
 
 ## Management
 
@@ -163,16 +165,17 @@ or constant beeper silence in the manual.
 | protocol and port speed | `driver`, `baud` |
 
 The card has output voltage, battery voltage, and remaining time thresholds;
-the gateway does not; the last one makes no sense for Sinus (the UPS does not
-report time).
+the gateway does not; the UPS reports runtime only through `BT`, not in Q1.
 
 ## KSTAR card extended profiles
 
 The card has profiles with additional requests: "Megatec-1-1-EXT" (`BT`, `BP`,
 `NQU`, `A1`: runtime, charge, serial number, alarm words), "Inform Pyramid DSP",
 and "Inform Forte" (`Q2`, `SEC`, `BYB`, `INN`, `ALR`, `BTT`: three-phase
-measurements and 48 alarm bits). No source shows that a single-phase Sinus EVO
-answers these requests; the `ALR` alarm labels describe three-phase models.
+measurements and 48 alarm bits). The owner's Sinus EVO 3000 answered the
+read-only `BT` and `BP` requests; no source shows that it answers `NQU`, `A1`
+or the three-phase Inform requests, and the `ALR` alarm labels describe
+three-phase models.
 The gateway sends only `BT` and `BP`, both read-only, and disables each one
 after three unanswered attempts; see [DRIVERS.md](DRIVERS.md). It does not send
 `NQU`, `A1` or the Inform requests. If you need to check whether your UPS
