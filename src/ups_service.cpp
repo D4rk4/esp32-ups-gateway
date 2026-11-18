@@ -190,6 +190,16 @@ void UpsService::run() {
     resync=true; resync_started=now;
     drainInput();
   };
+  // A failed BT/BP attempt (NAK, echo, malformed reply or timeout) is never a UPS
+  // error: it only counts against the probe, is journaled once at the disable
+  // transition, and ends the transaction so Q1 polling is not blocked.
+  auto extendedFailed=[&](uint32_t now,const std::string& detail) {
+    const bool runtime=kind==ups::PollKind::ExtendedRuntime;
+    if ((runtime ? runtime_probe : charge_probe).recordFailure())
+      events_.publish(EventType::ExtendedQuery,1,
+          std::string("UPS extended query ")+(runtime?"BT":"BP")+" unsupported ("+detail+")");
+    resynchronize(now);
+  };
   auto acceptFrame=[&](uint32_t now) {
     if (overflow) {
       // The rolling bounded buffer is used only to find a driver-defined end;
@@ -200,27 +210,13 @@ void UpsService::run() {
     const auto result=driver_->parseReply(kind,buffer,next);
     const std::string reply=sanitizeReply(buffer);
     buffer.clear();
-    if (result==ups::ParseResult::Ignored) {
-      if (kind==ups::PollKind::ExtendedRuntime || kind==ups::PollKind::ExtendedCharge) {
-        (kind==ups::PollKind::ExtendedRuntime ? runtime_probe : charge_probe).recordFailure();
-        events_.publish(EventType::ExtendedQuery,1,
-            std::string("UPS extended query ")
-            +(kind==ups::PollKind::ExtendedRuntime?"BT":"BP")
-            +" unsupported (NAK/echo)");
-      }
+    if (result!=ups::ParseResult::Accepted &&
+        (kind==ups::PollKind::ExtendedRuntime || kind==ups::PollKind::ExtendedCharge)) {
+      extendedFailed(now,reply);
       return;
     }
-    if (result==ups::ParseResult::Invalid) {
-      if (kind==ups::PollKind::ExtendedRuntime || kind==ups::PollKind::ExtendedCharge) {
-        auto& probe = kind==ups::PollKind::ExtendedRuntime ? runtime_probe : charge_probe;
-        if (probe.recordFailure())
-          events_.publish(EventType::ExtendedQuery,1,
-              std::string("UPS extended query ")
-              +(kind==ups::PollKind::ExtendedRuntime?"BT":"BP")
-              +" unsupported ("+reply+")");
-      } else countError();
-      return;
-    }
+    if (result==ups::ParseResult::Ignored) return;
+    if (result==ups::ParseResult::Invalid) { countError(); return; }
     if (kind==ups::PollKind::Status) {
       const bool reconnect=!next.connected;
       next.connected=true; next.last_success_ms=now; ++next.successful_polls;
@@ -282,9 +278,9 @@ void UpsService::run() {
       if (active && uint32_t(now-started)>=config_.response_timeout_ms) {
         if (kind==ups::PollKind::ExtendedRuntime || kind==ups::PollKind::ExtendedCharge) {
           // Extended probe timeout is not a UPS comm error: never mark
-          // disconnected, never increment errors, never delay Q1 beyond one
-          // extra response timeout. Just record the probe failure.
-          (kind==ups::PollKind::ExtendedRuntime ? runtime_probe : charge_probe).recordFailure();
+          // disconnected, never increment errors. End the transaction so Q1
+          // polling continues.
+          extendedFailed(now,"timeout");
         } else {
           countError(); resynchronize(now);
         }

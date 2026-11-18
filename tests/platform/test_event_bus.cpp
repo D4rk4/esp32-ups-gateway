@@ -147,6 +147,93 @@ void failedStorage(){
   for(int i=0;i<60;++i)bus.publish(EventType::ThresholdRaised,2,"overflow");
   assert(bus.persistenceStatus().pending==48&&bus.persistenceStatus().dropped==13);
 }
+void lastTransferTracking(){
+  const auto battery=EventType::OnBattery;std::string error;Event t;
+  {
+    MemoryStorage storage;EventBus bus;host_time_us=0;assert(bus.begin(storage));assert(!bus.lastTransfer(t));
+    bus.publish(EventType::LinkLost,3,"down");bus.publish(EventType::PowerRestored);assert(!bus.lastTransfer(t));
+    bus.publish(battery,2,"first",5000);assert(bus.lastTransfer(t)&&t.type==battery&&t.uptime_ms==5000);const auto first=t.seq;
+    bus.publish(battery,2,"second",9000);assert(bus.lastTransfer(t)&&t.uptime_ms==9000&&t.seq>first&&t.message=="second");// still only in the pending ring
+    bus.publish(EventType::PowerRestored);assert(bus.lastTransfer(t)&&t.uptime_ms==9000);
+  }
+  {
+    MemoryStorage storage;{EventBus bus;assert(bus.begin(storage));bus.publish(battery,2,"old",5000);
+      for(int i=0;i<100;++i){bus.publish(EventType::ThresholdRaised,1,"fill");if(i%16==15)assert(bus.flushPending(error));}assert(bus.flushPending(error));}
+    EventBus reboot;assert(reboot.begin(storage));assert(reboot.latest().size()==48);// seeded from the log although older than the RAM ring
+    assert(reboot.lastTransfer(t)&&t.uptime_ms==5000&&t.message=="old");
+    reboot.publish(battery,2,"unsaved",12000);assert(reboot.lastTransfer(t)&&t.uptime_ms==12000);
+    EventBus crash;assert(crash.begin(storage));assert(crash.lastTransfer(t)&&t.uptime_ms==5000);// the unflushed event is lost with the reboot
+  }
+  {
+    MemoryStorage storage;EventBus bus;assert(bus.begin(storage));bus.publish(battery,2,"saved",5000);assert(bus.flushPending(error));
+    assert(bus.clearLog(error)&&!bus.lastTransfer(t));
+    EventBus reboot;assert(reboot.begin(storage));assert(!reboot.lastTransfer(t));
+    bus.publish(battery,2,"before",6000);
+    storage.on_write=[&]{bus.publish(battery,2,"during",7000);};
+    assert(bus.clearLog(error));assert(bus.lastTransfer(t)&&t.uptime_ms==7000);// published after the cutoff, so it survives the clear
+  }
+  {
+    MemoryStorage storage;EventBus bus;assert(bus.begin(storage));bus.publish(battery,2,"keep",5000);
+    storage.fail_write=true;assert(!bus.clearLog(error));assert(bus.lastTransfer(t)&&t.uptime_ms==5000);// a failed clear changes nothing
+  }
+  {
+    MemoryStorage missing;missing.fail_read=true;EventBus bus;assert(bus.begin(missing));assert(!bus.lastTransfer(t));
+    bus.publish(battery,2,"ram only",3000);assert(bus.lastTransfer(t)&&t.uptime_ms==3000);
+  }
+  {
+    // The deep transfer search is a pure query: a failed read is "not known",
+    // not a fault. The ring had no OnBattery, so lastTransfer stays false, the
+    // log stays healthy, journaling continues, and no error is reported.
+    MemoryStorage storage;{EventBus bus;assert(bus.begin(storage));for(int i=0;i<20;++i)bus.publish(EventType::ThresholdRaised,1,"fill");assert(bus.flushPending(error));}
+    storage.fail_after_reads=storage.reads+4096+20;// scan and the 20-event recovery succeed, the search for a transfer does not
+    EventBus bus;assert(bus.begin(storage));assert(bus.latest().size()==20&&!bus.lastTransfer(t));
+    assert(bus.persistenceStatus().ok&&bus.persistenceStatus().error.empty());
+    bus.publish(EventType::ThresholdRaised,1,"after failed search");assert(bus.flushPending(error));
+    assert(bus.persistenceStatus().stored==21&&bus.persistenceStatus().ok);// journaling was never stopped
+  }
+  {
+    // (a) The ring already holds the newest OnBattery, so the seed never searches
+    // deeper: lastTransfer returns it, no error, and no reads beyond recovery.
+    MemoryStorage storage;EventBus seeded;assert(seeded.begin(storage));
+    seeded.publish(EventType::OnBattery,2,"ring",5000);assert(seeded.flushPending(error));
+    const size_t reads_before=storage.reads;EventBus bus;assert(bus.begin(storage));
+    assert(bus.lastTransfer(t)&&t.uptime_ms==5000&&t.message=="ring");
+    assert(bus.persistenceStatus().ok&&bus.persistenceStatus().error.empty());
+    assert(storage.reads==reads_before+4096+1);// only the scan and the one recovered record: no deep search
+  }
+  {
+    // (b) The only OnBattery is older than the newest 48, so the seed searches
+    // deep; a read fails there. lastTransfer is false with no fault, and a new
+    // event still flushes to the log.
+    MemoryStorage storage;EventBus old;assert(old.begin(storage));
+    old.publish(EventType::OnBattery,2,"ancient",4000);assert(old.flushPending(error));
+    for(int i=0;i<60;++i){old.publish(EventType::ThresholdRaised,1,"fill");if(i%16==15)assert(old.flushPending(error));}assert(old.flushPending(error));
+    storage.fail_after_reads=storage.reads+4096+48;// scan and recovery succeed, the deep transfer search does not
+    EventBus bus;assert(bus.begin(storage));assert(!bus.lastTransfer(t));
+    assert(bus.persistenceStatus().ok&&bus.persistenceStatus().error.empty());
+    bus.publish(EventType::ThresholdRaised,1,"after deep failure");assert(bus.flushPending(error)&&bus.persistenceStatus().stored>0);
+  }
+  {
+    // (c) Two OnBattery events in flash, reboot returns the newer one, in three
+    // layouts: both in the newest 48; one in and one older; both older than 48.
+    const auto battery=EventType::OnBattery;
+    MemoryStorage both_in_ring;{EventBus bus;assert(bus.begin(both_in_ring));
+      bus.publish(battery,2,"older",4000);assert(bus.flushPending(error));
+      for(int i=0;i<20;++i)bus.publish(EventType::ThresholdRaised,1,"fill");assert(bus.flushPending(error));
+      bus.publish(battery,2,"newer",9000);assert(bus.flushPending(error));}
+    EventBus reboot;assert(reboot.begin(both_in_ring));assert(reboot.lastTransfer(t)&&t.uptime_ms==9000&&t.message=="newer");
+    MemoryStorage one_in_one_out;{EventBus bus;assert(bus.begin(one_in_one_out));
+      bus.publish(battery,2,"older",4000);assert(bus.flushPending(error));
+      for(int i=0;i<60;++i){bus.publish(EventType::ThresholdRaised,1,"fill");if(i%16==15)assert(bus.flushPending(error));}assert(bus.flushPending(error));
+      bus.publish(battery,2,"newer",9000);assert(bus.flushPending(error));}
+    EventBus reboot2;assert(reboot2.begin(one_in_one_out));assert(reboot2.lastTransfer(t)&&t.uptime_ms==9000&&t.message=="newer");
+    MemoryStorage both_out;{EventBus bus;assert(bus.begin(both_out));
+      bus.publish(battery,2,"older",4000);assert(bus.flushPending(error));
+      for(int i=0;i<80;++i){bus.publish(EventType::ThresholdRaised,1,"fill");if(i%16==15)assert(bus.flushPending(error));}assert(bus.flushPending(error));
+      bus.publish(battery,2,"newer",9000);assert(bus.flushPending(error));}
+    EventBus reboot3;assert(reboot3.begin(both_out));assert(reboot3.lastTransfer(t)&&t.uptime_ms==9000&&t.message=="newer");
+  }
+}
 }
 int main(){
   EventBus bus;assert(bus.begin());
@@ -162,6 +249,6 @@ int main(){
   assert(pending.message=="UPS link unavailable"&&!bus.popTrap(pending));
   for(size_t i=0;i<60;++i)bus.publish(EventType::ThresholdRaised,2,"threshold");
   assert(bus.latest().size()==48&&bus.latest()[0].seq>sequence&&bus.queued()==0);
-  partitionBoundary();durableEvents();flushInterleavingAndPartialFailure();readFailures();failedStorage();
+  partitionBoundary();durableEvents();flushInterleavingAndPartialFailure();readFailures();failedStorage();lastTransferTracking();
   std::cout<<"event_bus platform boundary: durable journal, bounded queue, recovery and clear passed\n";
 }

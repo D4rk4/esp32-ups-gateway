@@ -50,7 +50,9 @@ void allocation_faults(){
 void public_and_roles(){
   Device device;
   auto response=fixture::request(HTTP_GET,"/");check(code(response)==200&&response.type=="text/html; charset=utf-8","public shell loads without Basic authentication");
-  check(response.response_headers["Content-Security-Policy"].find("img-src 'self' data:")!=std::string::npos,"reference data images are allowed by CSP");
+  const std::string csp=response.response_headers["Content-Security-Policy"];
+  check(csp.find("img-src 'self'")!=std::string::npos,"CSP allows images from the origin");
+  check(csp.find("data:")!=std::string::npos?false:true,"CSP does not allow data: URIs for images");
   response=fixture::request(HTTP_GET,"/api/session");const auto anonymous=payload(response);
   check(code(response)==200&&!anonymous["authenticated"].as<bool>()&&!anonymous.containsKey("csrf")&&!anonymous.containsKey("username"),"anonymous session has no identity or token");
   check(code(fixture::request(HTTP_GET,"/api/status"))==401,"status requires login");
@@ -194,6 +196,25 @@ void filters_status_and_handlers(){
   fixture::now=12000;response=fixture::request(HTTP_GET,"/api/status","",admin.cookie);data=payload(response);
   for(const auto* key:added)check(data["ups"].containsKey(key)&&data["ups"][key].isNull(),"stale added metric or flag is present and null");
   check(data["ups"]["load_percent"].isNull()&&data["ups"]["input_voltage"].isNull()&&!data["ups"]["connected"].as<bool>()&&data["ups"]["low_battery"].isNull(),"stale readings and flags become null even before UART owner updates connected");
+  {// last_transfer is event-log data: reported while the UPS data above is stale, null only when no on-battery event is known
+    const auto saved=fixture::events;fixture::events.clear();
+    response=fixture::request(HTTP_GET,"/api/status","",admin.cookie);data=payload(response);
+    check(data["ups"].containsKey("last_transfer")&&data["ups"]["last_transfer"].isNull(),"status reports a null last transfer when the event log has no on-battery event");
+    fixture::events.push_back({5,5000,gateway::EventType::OnBattery,2,"older",1794000010});fixture::events.push_back({9,9500,gateway::EventType::OnBattery,2,"newest",0});
+    response=fixture::request(HTTP_GET,"/api/status","",admin.cookie);data=payload(response);
+    check(data["ups"]["last_transfer"].is<JsonObjectConst>()&&data["ups"]["last_transfer"]["uptime_s"].as<unsigned>()==9&&data["ups"]["last_transfer"]["utc"].isNull()&&data["ups"]["last_transfer"].size()==2,"status reports the newest on-battery event with uptime seconds and null utc for an unset clock");
+    fixture::events.pop_back();// drop the newest so the older one, which has a valid clock, becomes the newest known
+    response=fixture::request(HTTP_GET,"/api/status","",admin.cookie);data=payload(response);
+    check(data["ups"]["last_transfer"]["uptime_s"].as<unsigned>()==5&&data["ups"]["last_transfer"]["utc"].as<unsigned long long>()==1794000010ULL,"status reports utc when the event had a valid clock");
+    fixture::events=saved;
+  }
+  {// two on-battery events: the response carries the newer one, not the first stored
+    const auto saved=fixture::events;fixture::events.clear();
+    fixture::events.push_back({5,5000,gateway::EventType::OnBattery,2,"older",1794000010});fixture::events.push_back({9,9500,gateway::EventType::OnBattery,2,"newer",0});
+    response=fixture::request(HTTP_GET,"/api/status","",admin.cookie);data=payload(response);
+    check(data["ups"]["last_transfer"].is<JsonObjectConst>()&&data["ups"]["last_transfer"]["uptime_s"].as<unsigned>()==9&&data["ups"]["last_transfer"]["utc"].isNull(),"status carries the newer on-battery event with the exact shape");
+    fixture::events=saved;
+  }
   check(code(fixture::request(HTTP_POST,"/api/command","{\"command\":\"test_short\",\"confirm\":\"EXECUTE\"}",admin.cookie,admin.csrf))==409,"backend stale rejection is preserved as conflict");
   check(code(fixture::request(HTTP_POST,"/api/time","{\"utc\":1794000000}",admin.cookie,admin.csrf))==409&&fixture::manual_utc==0,"manual time cannot override enabled NTP");
   check(code(fixture::request(HTTP_POST,"/api/syslog-test","{}",admin.cookie,admin.csrf))==202&&fixture::syslog_tests==1,"syslog test is accepted as queued work");

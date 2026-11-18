@@ -11,6 +11,12 @@
 #include "event_bus.hpp"
 #include "management_service.hpp"
 #include "firmware_update.hpp"
+#include "reset_reason.hpp"
+
+// reset_reason.cpp indexes its table by these SDK values; a renumbered SDK must fail the build.
+static_assert(ESP_RST_UNKNOWN==0&&ESP_RST_POWERON==1&&ESP_RST_EXT==2&&ESP_RST_SW==3&&ESP_RST_PANIC==4&&
+              ESP_RST_INT_WDT==5&&ESP_RST_TASK_WDT==6&&ESP_RST_WDT==7&&ESP_RST_DEEPSLEEP==8&&
+              ESP_RST_BROWNOUT==9&&ESP_RST_SDIO==10,"esp_reset_reason_t changed; update lib/GatewayCore/src/reset_reason.cpp");
 
 namespace {
 gateway::ConfigStore configStore;
@@ -51,6 +57,9 @@ void consoleCommand(const String& command){
 void setup(){
   Serial.begin(115200);delay(200);
   Serial.printf("\nESP32 UPS Gateway %s / ESP32-POE WROOM 16MB + MOD-RS232\n",FIRMWARE_VERSION);
+  // Read once: the same reason is printed here and journaled by the Startup event below.
+  const auto startup=gateway::startupReport(static_cast<int>(esp_reset_reason()));
+  Serial.println(startup.message.c_str());
   const auto* runningPartition=esp_ota_get_running_partition();esp_ota_img_states_t imageState;
   if(runningPartition&&esp_ota_get_state_partition(runningPartition,&imageState)==ESP_OK)
     Serial.printf("Running partition: %s; OTA image state: %lu\n",runningPartition->label,static_cast<unsigned long>(imageState));
@@ -79,7 +88,7 @@ void setup(){
   if(!snmpService->begin()){fatal("SNMP service initialization failed");return;}
   if(!managementService->begin()){fatal("Management service initialization failed");return;}
   if(!webService->begin()){fatal("HTTP service initialization failed");return;}
-  events.publish(gateway::EventType::Startup);
+  events.publish(gateway::EventType::Startup,startup.severity,startup.message);
   Serial.println("Ethernet: waiting for link/address. UART2 TX4 RX36. Type help for local recovery commands.");
   running=true;
 }

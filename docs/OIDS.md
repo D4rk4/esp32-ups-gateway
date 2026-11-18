@@ -11,7 +11,7 @@ GET/GETNEXT receives `tooBig`.
 
 | OID | Name | Type / value |
 | --- | --- | --- |
-| 1.3.6.1.2.1.1.1.0 | sysDescr | `ESP32 UPS Gateway/0.2.0; driver=...; PowerNet subset` |
+| 1.3.6.1.2.1.1.1.0 | sysDescr | `ESP32 UPS Gateway/0.2.1; driver=...; PowerNet subset` |
 | 1.3.6.1.2.1.1.2.0 | sysObjectID | OBJECT IDENTIFIER `0.0`, vendor identifier not yet assigned |
 | 1.3.6.1.2.1.1.3.0 | sysUpTime | TimeTicks, hundredths of a second since startup |
 | 1.3.6.1.2.1.1.4.0 | sysContact | String from configuration |

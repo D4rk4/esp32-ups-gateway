@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 namespace gateway {
@@ -29,6 +30,11 @@ class PersistentLog {
   bool clear(uint32_t sequence);
   // Newest first, bounded to 48; before is an exclusive sequence cursor.
   bool recent(std::vector<Event>& out,size_t limit=48,bool has_before=false,uint32_t before=0);
+  // Newest stored event of one type, stopping at the first match. A pure query:
+  // false when there is none or a read fails ("not known"), out is then
+  // untouched and the log's health is unchanged; it never skips an unreadable
+  // record to offer an older match.
+  bool newest(EventType type,Event& out);
   uint32_t latestSequence() const {return latest_sequence_;}
   size_t count() const {return count_;}
   // One physical sector is reserved as a spare for safe clear/rotation.
@@ -39,6 +45,7 @@ class PersistentLog {
   bool scan();
   bool rotate(bool clear,uint32_t watermark);
   bool readRecord(size_t sector,size_t index,Event& event);
+  bool walk(bool has_before,uint32_t before,const std::function<bool(Event&)>& visit);
   PersistentLogStorage& storage_;
   std::array<Sector,256> sectors_{};
   uint64_t generation_{0},epoch_{0};

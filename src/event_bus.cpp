@@ -41,6 +41,11 @@ bool EventBus::start(PersistentLogStorage* storage,const std::string& error){
   for(auto it=recovered.rbegin();it!=recovered.rend();++it){
     log_[head_]=*it;head_=(head_+1)%log_.size();++count_;
   }
+  // Seed from the recovered ring first; only search the deeper log when the ring
+  // has no OnBattery, so a display-only search never stops journaling. A failed
+  // deep search is "not known", not a fault.
+  for(const auto& event:recovered)if(event.type==EventType::OnBattery){last_transfer_=event;has_transfer_=true;break;}
+  if(!has_transfer_)has_transfer_=persistent_->newest(EventType::OnBattery,last_transfer_);
   return true;
 }
 void EventBus::publish(EventType type,uint8_t severity,const std::string& message,uint64_t time_ms){
@@ -51,6 +56,7 @@ void EventBus::publish(EventType type,uint8_t severity,const std::string& messag
   xSemaphoreTake(mutex_,portMAX_DELAY);
   if(++sequence_==0)++sequence_;event.seq=sequence_;
   log_[head_]=event;head_=(head_+1)%log_.size();if(count_<log_.size())++count_;
+  if(type==EventType::OnBattery){has_transfer_=true;last_transfer_=event;}
   const Queued queued=pack(event,now_ms);
   if(pending_count_<pending_.size()){
     pending_[(pending_head_+pending_count_)%pending_.size()]=queued;
@@ -61,6 +67,10 @@ void EventBus::publish(EventType type,uint8_t severity,const std::string& messag
   if(powerNetTrapNumber(type)||type==EventType::Startup||type==EventType::TestTrap){
     if(!queue_||xQueueSend(queue_,&queued,0)!=pdTRUE)++dropped_;
   }
+}
+bool EventBus::lastTransfer(Event& out)const{
+  if(!mutex_)return false;
+  xSemaphoreTake(mutex_,portMAX_DELAY);const bool ok=has_transfer_;if(ok)out=last_transfer_;xSemaphoreGive(mutex_);return ok;
 }
 std::vector<Event> EventBus::latest()const{
   std::vector<Event> out;if(!mutex_)return out;
@@ -110,6 +120,7 @@ bool EventBus::clearLog(std::string& error){
     persistence_error_="Persistent log clear failed";error=persistence_error_;xSemaphoreGive(storage_mutex_);return false;
   }
   xSemaphoreTake(mutex_,portMAX_DELAY);
+  if(has_transfer_&&!newer(last_transfer_.seq,cutoff)){has_transfer_=false;last_transfer_={};}// one published during the clear survives
   while(count_){
     const size_t oldest=(head_+log_.size()-count_)%log_.size();
     if(newer(log_[oldest].seq,cutoff))break;

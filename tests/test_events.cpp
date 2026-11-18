@@ -4,7 +4,7 @@
 using namespace gateway;
 bool has(const std::vector<Event>& es,EventType t){for(const auto&e:es)if(e.type==t)return true;return false;}
 int main(){
-  for(int i=static_cast<int>(EventType::LinkLost);i<=static_cast<int>(EventType::SyslogTest);++i){const std::string message=eventMessage(static_cast<EventType>(i));assert(!message.empty()&&message.size()<=180);for(const unsigned char ch:message)assert(ch<128);}
+  for(int i=static_cast<int>(EventType::LinkLost);i<=static_cast<int>(EventType::ExtendedQuery);++i){const std::string message=eventMessage(static_cast<EventType>(i));assert(!message.empty()&&message.size()<=180);for(const unsigned char ch:message)assert(ch<128);}
   assert(std::string(eventMessage(EventType::OnBattery))=="UPS is on battery");
   assert(std::string(eventMessage(EventType::LinkLost))=="Communication with UPS lost");
   EventEngine e; ups::Snapshot s; s.connected=true;s.status_valid=true;

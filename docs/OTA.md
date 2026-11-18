@@ -69,6 +69,16 @@ bootloader, and not a partition table. After successful upload, the gateway
 separate restart step. During restart, communication with the UPS and the web
 interface is temporarily interrupted.
 
+Version 0.2.0 cannot take a web upload: test uploads restarted the gateway
+before a new slot was selected. The likely cause is a stack overflow: its upload
+handler keeps a 4 KB buffer on the 8 KB HTTP task stack, and the computed call
+depth on that path exceeds the stack; no crash log was captured to confirm it.
+The step from 0.2.0 to 0.2.1 therefore needs one USB
+`update` (or `migrate`) with the PoE Ethernet cable disconnected; web update is
+intended to work from 0.2.1 onward but has not been verified on a physical board.
+If a gateway restarts unexpectedly, the next `startup` event in the event log
+names the reset reason (for example `task watchdog` or `panic`).
+
 HTTP is not encrypted: passwords, session, and the image may be intercepted or
 modified over the network. Perform login and update only in a trusted local
 network or via a protected VPN; do not expose the interface directly to the

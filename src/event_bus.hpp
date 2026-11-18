@@ -21,6 +21,8 @@ class EventBus {
   std::vector<Event> latest() const;
   std::vector<Event> history(uint32_t before_seq=0,size_t limit=48);
   PersistenceStatus persistenceStatus() const;
+  // Newest OnBattery event known (RAM ring or persistent log); false when none.
+  bool lastTransfer(Event& out) const;
   bool clearLog(std::string& error);
   bool flushPending(std::string& error);
   uint32_t latestSequence() const;
@@ -39,6 +41,7 @@ class EventBus {
   QueueHandle_t queue_{nullptr};
   std::array<Event,48> log_{};
   std::array<Queued,48> pending_{};
+  Event last_transfer_;bool has_transfer_{false};
   size_t head_{0},count_{0},pending_head_{0},pending_count_{0};uint32_t sequence_{0},persistence_dropped_{0};
   uint64_t pending_since_{0};
   PersistentLogStore storage_;

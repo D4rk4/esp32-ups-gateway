@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <functional>
 #include <limits>
 
 namespace gateway {
@@ -36,7 +37,10 @@ bool initialHeaderPrefix(const Block& block){
   return false;
 }
 bool newer(uint32_t candidate,uint32_t reference){return candidate!=reference&&uint32_t(candidate-reference)<0x80000000u;}
-bool validType(EventType type){const auto value=static_cast<int>(type);return value>=static_cast<int>(EventType::LinkLost)&&value<=static_cast<int>(EventType::SyslogTest);}
+// The newest event type the journal accepts, written at both the encode and
+// decode sites so a future added type cannot be half-bounded.
+constexpr EventType kMaxStoredType=EventType::ExtendedQuery;
+bool validType(EventType type){const auto value=static_cast<int>(type);return value>=static_cast<int>(EventType::LinkLost)&&value<=static_cast<int>(kMaxStoredType);}
 bool validEvent(const Event& e){return e.seq!=0&&validType(e.type)&&e.severity>=1&&e.severity<=3&&e.message.size()<=kMessageLimit;}
 Block encodeEvent(const Event& e){
   Block b{};put32(b.data(),e.seq);put64(b.data()+4,e.uptime_ms);put64(b.data()+12,e.utc);
@@ -46,7 +50,7 @@ Block encodeEvent(const Event& e){
 bool decodeEvent(const Block& b,Event& e){
   if(!validCrc(b))return false;
   const auto type=get16(b.data()+20);const size_t length=b[23];
-  if(get32(b.data())==0||type>static_cast<unsigned>(EventType::SyslogTest)||b[22]<1||b[22]>3||length>kMessageLimit)return false;
+  if(get32(b.data())==0||type>static_cast<unsigned>(kMaxStoredType)||b[22]<1||b[22]>3||length>kMessageLimit)return false;
   e.seq=get32(b.data());e.uptime_ms=get64(b.data()+4);e.utc=get64(b.data()+12);e.type=static_cast<EventType>(type);e.severity=b[22];
   e.message.assign(reinterpret_cast<const char*>(b.data()+kMessageOffset),length);return true;
 }
@@ -145,19 +149,33 @@ bool PersistentLog::clear(uint32_t sequence){
 bool PersistentLog::readRecord(size_t sector,size_t index,Event& event){
   Block block{};return storage_.read(sector*kSectorSize+(index+1)*kSlotSize,block.data(),block.size())&&decodeEvent(block,event);
 }
-bool PersistentLog::recent(std::vector<Event>& out,size_t limit,bool has_before,uint32_t before){
-  out.clear();if(!initialized_)return false;
-  limit=std::min<size_t>(limit,48);if(!limit||current_==kSectorCount)return true;
-  out.reserve(std::min(limit,count_));
-  for(size_t distance=0;distance<kSectorCount-1&&out.size()<limit;++distance){
+// One newest-first record walk shared by recent() and newest(); visit returns
+// false to stop. A failed read fails the walk without touching any state: the
+// caller decides whether that degrades the log. newest() treats it as "not
+// known"; recent() clears its output and marks the log unhealthy.
+bool PersistentLog::walk(bool has_before,uint32_t before,const std::function<bool(Event&)>& visit){
+  if(!initialized_)return false;
+  if(current_==kSectorCount)return true;
+  for(size_t distance=0;distance<kSectorCount-1;++distance){
     const size_t index=(current_+kSectorCount-distance)%kSectorCount;const auto& sector=sectors_[index];
     if(!sector.valid||sector.epoch!=epoch_||!sector.count)continue;
     if(has_before&&!newer(before,sector.first))continue;
-    for(size_t n=sector.count;n>0&&out.size()<limit;--n){
-      Event event;if(!readRecord(index,n-1,event)){out.clear();healthy_=false;return false;}
-      if(!has_before||newer(before,event.seq))out.push_back(std::move(event));
+    for(size_t n=sector.count;n>0;--n){
+      Event event;if(!readRecord(index,n-1,event))return false;
+      if((!has_before||newer(before,event.seq))&&!visit(event))return true;
     }
   }
   return true;
+}
+bool PersistentLog::newest(EventType type,Event& out){
+  bool found=false;
+  return walk(false,0,[&](Event& event){if(event.type!=type)return true;out=std::move(event);found=true;return false;})&&found;
+}
+bool PersistentLog::recent(std::vector<Event>& out,size_t limit,bool has_before,uint32_t before){
+  out.clear();if(!initialized_)return false;
+  limit=std::min<size_t>(limit,48);if(!limit)return true;
+  out.reserve(std::min(limit,count_));
+  if(walk(has_before,before,[&](Event& event){out.push_back(std::move(event));return out.size()<limit;}))return true;
+  out.clear();healthy_=false;return false;
 }
 }

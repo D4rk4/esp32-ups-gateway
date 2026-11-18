@@ -1,4 +1,4 @@
-# ESP32 UPS Gateway 0.2.0
+# ESP32 UPS Gateway 0.2.1
 
 Modular firmware for **Olimex ESP32-POE / ESP32-POE-16MB with WROOM and 16 MB flash + MOD-RS232 on UEXT**. Monitoring via APC PowerNet SNMPv2c, traps, web interface in English, UPS control through a separate UPS driver.
 
@@ -19,7 +19,7 @@ Modular firmware for **Olimex ESP32-POE / ESP32-POE-16MB with WROOM and 16 MB fl
 - Two application OTA slots; configuration stored separately and survives a normal update.
 - Ready binaries in `firmware/`, full source code, configuration integrity-checking install script.
 
-No full copy of the APC network card or KPM220 is included here: SMTP, WoL, SNMPv3, INFORM, HTTPS, RADIUS, SSH/Telnet, FTP and firmware update over HTTP are not implemented. Update is performed over USB with a single application slot. PDU outlets are not created from nothing: commands and data depend on the UPS driver. Function/API porting map — `docs/APC_PORT.md`. Reference extracted from the user's APC package is included in `reference/apc-webui/`.
+No full copy of the APC network card or KPM220 is included here: SMTP, WoL, SNMPv3, INFORM, HTTPS, RADIUS, SSH/Telnet and FTP are not implemented. Firmware can be updated in two ways: over USB, or over HTTP by a logged-in administrator (the image goes to the inactive of the two OTA slots; a new image that does not bring up the configuration, Ethernet and an IP address within 120 seconds is rolled back by the SDK). Web update and rollback have not been verified on a physical board; details in [docs/OTA.md](docs/OTA.md). PDU outlets are not created from nothing: commands and data depend on the UPS driver. Function/API porting map — `docs/APC_PORT.md`.
 
 ## 1. Connecting hardware
 
@@ -171,7 +171,7 @@ The schedules page supports up to eight rules: one-off at UTC or weekly in a giv
 
 The scheduler does not execute missed commands retroactively. Before queuing an operation it saves a mark in NVS; on save error the command is not sent. At start and time jumps the execution window is suppressed so as not to repeat questionable operations. This is a no-resend guarantee in the described cases, not confirmation of execution by the UPS itself.
 
-Measurement history is a RAM ring of 240 records; at a 60-second interval up to four hours, after a restart it is lost. The event log is also stored in a separate flash partition: paginated CSV export is available, see [PERSISTENT_LOGS.md](docs/PERSISTENT_LOGS.md). Recent events may remain in the buffer and be lost on sudden power-off; storage state and overflow are shown by the interface. Event clearing does not clear the SNMP trap queue. UDP syslog, like traps, does not confirm delivery.
+Measurement history is a RAM ring of 240 records; at a 60-second interval up to four hours, after a restart it is lost. The event log is also stored in a separate flash partition: paginated CSV export is available, see [PERSISTENT_LOGS.md](docs/PERSISTENT_LOGS.md). Recent events may remain in the buffer and be lost on sudden power-off; storage state and overflow are shown by the interface. Every start records a `startup` event whose message names the reset reason, for example `Gateway started; reset reason: task watchdog` (reasons: power-on, external reset, software restart, panic, interrupt watchdog, task watchdog, other watchdog, deep sleep, brownout, SDIO reset, unknown). Panic, watchdog and brownout resets are recorded with warning severity, so a crash that restarted the gateway stays visible in the event log without a USB console. The same text is printed on the USB console at boot and is carried in the coldStart trap and in syslog. Event clearing does not clear the SNMP trap queue. UDP syslog, like traps, does not confirm delivery.
 
 The administrator configures the system; the operator reads data and sends permitted UPS commands; the observer only reads data. Background reading updates do not extend the session timeout without human action. All permission restrictions are enforced server-side, independently of button visibility in the browser.
 
@@ -206,6 +206,8 @@ Semgrep uses only local rules `tools/semgrep-release.yml`, without a cloud rule 
 ## 7. Update preserving configuration
 
 When transitioning from 0.1.0, schema 1 configuration is read and supplemented with schema 2 fields in memory. Passwords, communities and other old values are preserved. The read itself does not overwrite the blob; the new schema is written on explicit save. Downgrade after writing schema 2 is not supported by old firmware: first use the raw copy made before updating.
+
+**Upgrading from 0.2.0 to 0.2.1 needs one USB flash; do not use web upload for this step.** Test uploads to a 0.2.0 device restarted the gateway with no HTTP response and before a new slot was selected, so the new image never started. The likely cause is a stack overflow: the 0.2.0 firmware upload handler keeps its 4 KB read buffer on the 8 KB HTTP task stack, and the computed call depth on that path exceeds the stack; no crash log was captured to confirm it. 0.2.1 moves the buffer to the heap, so web update can be used from 0.2.1 onward; this has not been verified on a physical board. Write the first 0.2.1 image over USB with the commands below (`update` if the device already has the OTA table, `migrate` if it still has the old single `factory` table), and **disconnect the Ethernet cable with PoE first**, as described in section 1.
 
 After receiving a new package version or running `tools/build.py`, perform a one-time USB transition from the old `factory` table:
 

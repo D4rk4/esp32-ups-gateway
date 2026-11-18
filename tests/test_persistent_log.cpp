@@ -13,13 +13,13 @@ constexpr size_t sector=4096, sectors=256;
 struct Memory final : PersistentLogStorage {
   std::vector<uint8_t> bytes;
   std::vector<unsigned> erases;
-  size_t reads=0,writes=0,erase_count=0;
+  size_t reads=0,read_bytes=0,writes=0,erase_count=0;
   long fail_read=-1,fail_write=-1,fail_erase=-1;
   size_t partial=0;
   explicit Memory(size_t size=sector*sectors):bytes(size,0xff),erases((size+sector-1)/sector){}
   size_t size() const override {return bytes.size();}
   bool read(size_t offset,void* out,size_t length) override {
-    ++reads;if(fail_read==0)return false;if(fail_read>0)--fail_read;
+    ++reads;read_bytes+=length;if(fail_read==0)return false;if(fail_read>0)--fail_read;
     if(offset>bytes.size()||length>bytes.size()-offset)return false;
     std::memcpy(out,bytes.data()+offset,length);return true;
   }
@@ -105,6 +105,77 @@ void interrupted_recycled_sector_erase(){
     assert(reboot.append({event(3841)}));PersistentLog again(mem);assert(again.begin()&&again.latestSequence()==3841);
   }
 }
+void extended_query_type_bounds(){
+  const auto last=EventType::ExtendedQuery;const auto past=static_cast<EventType>(static_cast<int>(last)+1);
+  auto typed=[](uint32_t seq,EventType type){auto e=event(seq,"UPS extended query BT supported");e.type=type;return e;};
+  {
+    Memory mem;PersistentLog log(mem);assert(log.begin());
+    // A batch with the newest type must persist whole; rejecting it would also drop its valid neighbours.
+    assert(log.append({event(1),typed(2,last),event(3)}));assert(log.count()==3&&log.healthy());
+    PersistentLog reboot(mem);assert(reboot.begin()&&reboot.count()==3&&reboot.latestSequence()==3);
+    auto got=page(reboot);assert(got.size()==3);same(got[1],typed(2,last));assert(got[1].type==EventType::ExtendedQuery);
+  }
+  {
+    Memory mem;PersistentLog log(mem);assert(log.begin());
+    assert(!log.append({typed(1,past)})&&!log.append({event(1),typed(2,past)}));assert(log.healthy()&&mem.writes==0);
+  }
+  for(const bool in_range:{true,false}){
+    Memory mem;PersistentLog log(mem);assert(log.begin()&&log.append({typed(1,last)}));
+    const size_t record=256,type_offset=record+20;const auto raw=static_cast<uint16_t>(in_range?last:past);
+    mem.bytes[type_offset]=uint8_t(raw);mem.bytes[type_offset+1]=uint8_t(raw>>8);setHeaderCrc(mem.bytes,record);
+    PersistentLog reboot(mem);assert(reboot.begin());assert(reboot.count()==(in_range?1u:0u));
+  }
+}
+Event typed(uint32_t seq,EventType type){auto e=event(seq,"typed");e.type=type;return e;}
+void fill(PersistentLog& log,uint32_t from,uint32_t to,EventType type=EventType::Startup){
+  for(uint32_t n=from;n<=to;n+=15){std::vector<Event> batch;for(uint32_t i=n;i<n+15&&i<=to;++i)batch.push_back(typed(i,type));assert(log.append(batch));}
+}
+void newest_of_type(){
+  const auto battery=EventType::OnBattery;Event out=event(77);
+  {
+    Memory mem;PersistentLog log(mem);assert(log.begin());
+    mem.reads=0;assert(!log.newest(battery,out)&&out.seq==77&&mem.reads==0);// empty log: none, out untouched, no reads
+    assert(log.append({event(1),typed(2,battery),event(3),typed(4,EventType::PowerRestored),typed(9,battery),event(10)}));
+    mem.reads=0;assert(log.newest(battery,out));same(out,typed(9,battery));assert(mem.reads==2);// stops at the first match, newest first
+    PersistentLog reboot(mem);assert(reboot.begin());assert(reboot.newest(battery,out));same(out,typed(9,battery));
+    assert(!reboot.newest(EventType::LowBattery,out)&&out.seq==9);// other types are ignored
+  }
+  {
+    Memory mem;PersistentLog log(mem);assert(log.begin());
+    assert(log.append({typed(1,battery)}));fill(log,2,400);// older than the newest 48 records and several sectors back
+    assert(page(log).front().seq==400&&page(log).back().seq==353);
+    assert(log.newest(battery,out)&&out.seq==1);
+    PersistentLog reboot(mem);assert(reboot.begin());assert(reboot.newest(battery,out)&&out.seq==1);
+    assert(log.clear(log.latestSequence()));assert(!log.newest(battery,out));
+    PersistentLog cleared(mem);assert(cleared.begin());assert(!cleared.newest(battery,out));
+    assert(cleared.append({event(401)}));assert(!cleared.newest(battery,out));
+    assert(cleared.append({typed(402,battery)}));assert(cleared.newest(battery,out)&&out.seq==402);
+  }
+  {
+    Memory mem;PersistentLog log(mem);assert(log.begin());
+    assert(log.append({typed(1,battery)}));fill(log,2,3840+sector*2);// rotated out of the ring: gone, as for recent()
+    assert(!log.newest(battery,out));
+    PersistentLog reboot(mem);assert(reboot.begin());assert(!reboot.newest(battery,out));
+  }
+  {
+    Memory mem;PersistentLog log(mem);assert(log.begin());fill(log,1,3825);assert(log.count()==3825);
+    mem.reads=mem.read_bytes=0;assert(!log.newest(battery,out));// worst case: full log without a match reads every record once
+    assert(mem.reads<=log.capacity()&&mem.read_bytes<=log.capacity()*256&&log.healthy());
+  }
+  {
+    // Changed contract: a failed read in newest() is "not known", not a fault.
+    Memory mem;PersistentLog log(mem);assert(log.begin()&&log.append({event(1),typed(2,battery)}));
+    Event kept=event(55);mem.fail_read=0;assert(!log.newest(battery,kept)&&kept.seq==55&&log.healthy());// false, out untouched, log still healthy
+    mem.fail_read=-1;assert(log.append({event(3)}));// journaling continues after a failed search
+    PersistentLog reboot(mem);assert(reboot.begin()&&reboot.newest(battery,out)&&out.seq==2);
+  }
+  {
+    // A failed read must not skip the unreadable record and present an older match.
+    Memory mem;PersistentLog log(mem);assert(log.begin());
+    assert(log.append({typed(1,battery),typed(2,battery)}));
+    Event out2=event(77);mem.fail_read=0;assert(!log.newest(battery,out2)&&out2.seq==77&&log.healthy());
+  }
+}
 void damaged_records_and_invalid_input(){
   {
     Memory mem;PersistentLog log(mem);assert(log.begin()&&log.append({event(1),event(2),event(3)}));
@@ -145,4 +216,4 @@ void errors_and_torn_writes(){
   Memory unknown;unknown.bytes[0]=42;PersistentLog foreign(unknown);assert(!foreign.begin()&&!foreign.healthy()&&unknown.writes==0&&unknown.erase_count==0);
 }
 }
-int main(){empty_and_persistence();rollover_and_rotation();durable_clear();failed_full_clear_preserves_history();interrupted_recycled_sector_erase();damaged_records_and_invalid_input();errors_and_torn_writes();std::cout<<"persistent log: recovery, wear, pagination and fail-closed checks passed\n";}
+int main(){empty_and_persistence();rollover_and_rotation();extended_query_type_bounds();newest_of_type();durable_clear();failed_full_clear_preserves_history();interrupted_recycled_sector_erase();damaged_records_and_invalid_input();errors_and_torn_writes();std::cout<<"persistent log: recovery, wear, pagination and fail-closed checks passed\n";}

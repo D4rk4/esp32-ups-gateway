@@ -88,5 +88,13 @@ int main(){
   // The RAM high-water still prevents a backward jump from replaying idle time.
   idle.tick(t+100,86401000,{true,2,1,40,20261110},driver,fresh(86401000),idle_save,week_send);
   assert(idle_writes==2&&idle.journal().guarded_until>=t+86400&&!idle.runtime()[0].armed);
+  {// ups.last_transfer: null without an event; whole boot-uptime seconds; unset clock (utc 0) reads as null, never 0
+    auto render=[](const Event* event){DynamicJsonDocument d(256);writeLastTransfer(d.to<JsonObject>(),event);std::string out;serializeJson(d,out);return out;};
+    Event e;e.type=EventType::OnBattery;
+    assert(render(nullptr)=="{\"last_transfer\":null}");
+    e.uptime_ms=1999;e.utc=1794000010;assert(render(&e)=="{\"last_transfer\":{\"uptime_s\":1,\"utc\":1794000010}}");
+    e.uptime_ms=120000;e.utc=0;assert(render(&e)=="{\"last_transfer\":{\"uptime_s\":120,\"utc\":null}}");
+    e.uptime_ms=5000000000000ULL;e.utc=kLastValidUtc;assert(render(&e)=="{\"last_transfer\":{\"uptime_s\":5000000000,\"utc\":4102444799}}");
+  }
   std::cout<<"management: missing/stale history, ring bound, threshold delay, durable scheduling and RFC3164 passed\n";
 }

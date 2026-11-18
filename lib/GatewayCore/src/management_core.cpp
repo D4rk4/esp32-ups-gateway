@@ -36,6 +36,11 @@ void writeRule(JsonObject o,const ScheduleRule& r){
 bool freshSnapshot(const ups::Snapshot& s,uint64_t now,uint32_t stale_ms){
   return s.connected&&s.status_valid&&uint32_t(uint32_t(now)-s.last_success_ms)<stale_ms;
 }
+void writeLastTransfer(JsonObject ups,const Event* e){
+  if(!e){ups["last_transfer"]=nullptr;return;}
+  auto o=ups.createNestedObject("last_transfer");o["uptime_s"]=e->uptime_ms/1000;
+  if(e->utc)o["utc"]=e->utc;else o["utc"]=nullptr;
+}
 bool parseScheduledCommand(const std::string& name,ups::Command& out){const auto* info=ups::findCommand(name);if(!info)return false;out=info->command;return true;}
 bool scheduledCommandReady(const Config& c,const ScheduleRule& r,const ups::UpsDriver* driver,const ups::Snapshot& s,uint64_t now,std::string& reason){
   reason.clear();ups::Command command{};ups::EncodedCommand encoded;

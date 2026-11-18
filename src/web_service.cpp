@@ -2,6 +2,7 @@
 #include "web_assets.hpp"
 #include "driver_registry.hpp"
 #include "config_json.hpp"
+#include "management_core.hpp"
 #include <Arduino.h>
 #include <ETH.h>
 #include <esp_system.h>
@@ -14,6 +15,8 @@
 #include <cstdio>
 #include <cstring>
 #include <initializer_list>
+#include <memory>
+#include <new>
 
 namespace gateway {
 namespace {
@@ -202,7 +205,12 @@ esp_err_t WebService::firmwareUpload(httpd_req_t* r){
   if(value!="application/octet-stream")return error(r,"415 Unsupported Media Type","Content-Type: application/octet-stream is required");
   constexpr size_t prefix_size=24+8+256;
   if(r->content_len<prefix_size)return error(r,"400 Bad Request","Firmware image header is incomplete");
-  uint8_t buffer[4096];size_t received=0;
+  // Heap, not stack: a 4 KB local made this frame 4480 B and overflowed the 8 KB httpd task stack,
+  // which reset the gateway on every upload. Allocated before esp_ota_begin and freed on every return.
+  constexpr size_t chunk_size=4096;
+  const std::unique_ptr<uint8_t[]> chunk(new(std::nothrow) uint8_t[chunk_size]);
+  if(!chunk)return error(r,"503 Service Unavailable","Not enough memory for the firmware upload buffer");
+  uint8_t* const buffer=chunk.get();size_t received=0;
   while(received<prefix_size){
     const int count=httpd_req_recv(r,reinterpret_cast<char*>(buffer+received),prefix_size-received);
     if(count<=0)return error(r,"408 Request Timeout","Could not read the complete firmware image");
@@ -213,7 +221,7 @@ esp_err_t WebService::firmwareUpload(httpd_req_t* r){
   if(esp_ota_begin(partition,r->content_len,&update)!=ESP_OK)return error(r,"500 Internal Server Error","Could not begin firmware update");
   if(esp_ota_write(update,buffer,received)!=ESP_OK){esp_ota_abort(update);return error(r,"500 Internal Server Error","Could not write firmware image");}
   while(received<r->content_len){
-    const size_t wanted=std::min(sizeof(buffer),r->content_len-received);
+    const size_t wanted=std::min(chunk_size,r->content_len-received);
     const int count=httpd_req_recv(r,reinterpret_cast<char*>(buffer),wanted);
     if(count<=0){esp_ota_abort(update);return error(r,"408 Request Timeout","Could not read the complete firmware image");}
     if(esp_ota_write(update,buffer,size_t(count))!=ESP_OK){esp_ota_abort(update);return error(r,"500 Internal Server Error","Could not write firmware image");}
@@ -264,6 +272,7 @@ esp_err_t WebService::status(httpd_req_t* r){
   flag(ups,"test_running",state.test_running,fresh);flag(ups,"shutdown_active",state.shutdown_active,fresh);flag(ups,"beeper_on",state.beeper_on,fresh);
   if(fresh){ups["raw_status"]=state.raw_status;ups["last_status_line"]=state.last_status_line;}else{ups["raw_status"]=nullptr;ups["last_status_line"]=nullptr;}
   ups["successful_polls"]=state.successful_polls;ups["errors"]=state.errors;
+  Event transfer;writeLastTransfer(ups,events_.lastTransfer(transfer)?&transfer:nullptr);
   const auto control=ups_.controlStatus();auto ctrl=document.createNestedObject("control");
   ctrl["enabled"]=active_.controls_enabled;ctrl["power_enabled"]=active_.power_controls_enabled;
   ctrl["last_id"]=control.last_id;ctrl["last_command"]=control.last_command;ctrl["last_state"]=control.last_state;ctrl["last_message"]=control.last_message;
@@ -351,7 +360,7 @@ esp_err_t WebService::handle(httpd_req_t* r){
     switch(route->id){
       case auth::Endpoint::Root:
         httpd_resp_set_type(r,"text/html; charset=utf-8");httpd_resp_set_hdr(r,"Content-Encoding","gzip");commonHeaders(r);
-        httpd_resp_set_hdr(r,"Content-Security-Policy","default-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+        httpd_resp_set_hdr(r,"Content-Security-Policy","default-src 'self'; img-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
         return httpd_resp_send(r,reinterpret_cast<const char*>(WEB_GZIP),WEB_GZIP_SIZE);
       case auth::Endpoint::Session:return sessionResponse(r,session.role==auth::Role::None?nullptr:&session);
       case auth::Endpoint::Status:return status(r);
@@ -382,14 +391,17 @@ esp_err_t WebService::handle(httpd_req_t* r){
   if(route->id==auth::Endpoint::Firmware)return firmwareUpload(r);
   std::string body;if(!readBody(r,route->max_body,body))return ESP_FAIL;
   if(route->id==auth::Endpoint::Config){
-    Lock lock(config_mutex_);Config candidate;
+    Lock lock(config_mutex_);
+    // Heap, not stack: sizeof(Config) is 900 B and, as a local, it enlarged handle()'s frame for every route.
+    const std::unique_ptr<Config> candidate(new(std::nothrow) Config());
+    if(!candidate)return error(r,"503 Service Unavailable","Not enough memory to validate the configuration");
     // Preview validation releases its large JSON document before persistence.
     // The filtered document below contains only the transient confirmation.
-    if(!mergeConfigJson(store_.saved(),body,candidate,why))return error(r,"400 Bad Request",why);
+    if(!mergeConfigJson(store_.saved(),body,*candidate,why))return error(r,"400 Bad Request",why);
     StaticJsonDocument<64> filter;filter["confirm"]=true;DynamicJsonDocument confirmation(256);
     const auto parsed=deserializeJson(confirmation,body,DeserializationOption::Filter(filter));
     if(parsed||confirmation.overflowed()||(confirmation.containsKey("confirm")&&(!confirmation["confirm"].is<const char*>()||confirmation["confirm"].as<std::string>()!="POWER")))return error(r,"400 Bad Request","Transient confirm must be the string POWER");
-    if(auth::powerConfirmationRequired(store_.saved(),candidate)&&confirmation["confirm"].as<std::string>()!="POWER")return error(r,"400 Bad Request","Enabling or changing a power schedule requires explicit POWER confirmation");
+    if(auth::powerConfirmationRequired(store_.saved(),*candidate)&&confirmation["confirm"].as<std::string>()!="POWER")return error(r,"400 Bad Request","Enabling or changing a power schedule requires explicit POWER confirmation");
     // ConfigStore serializes known fields only; confirm is never persisted.
     if(!store_.mergeAndSave(body,why))return error(r,"400 Bad Request",why);
     needs_reboot_=true;return json(r,"{\"ok\":true,\"reboot_required\":true}");

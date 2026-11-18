@@ -229,6 +229,17 @@ int main() {
       metric(good.runtime_seconds, 12345);
       metric(good.battery_charge, 77.5f);
     }
+    // An echoed BT/BP request is an echo, not a malformed reply: Ignored, state untouched.
+    for (const auto kind : {PollKind::ExtendedRuntime, PollKind::ExtendedCharge}) {
+      for (const auto* echo : {"BT\r", "BP\r", "NAK\r", "(NAK\r"}) {
+        Snapshot echoed = base;
+        echoed.runtime_seconds = {12345, true};
+        echoed.battery_charge = {77.5f, true};
+        assert(driver.parseReply(kind, echo, echoed) == ParseResult::Ignored);
+        metric(echoed.runtime_seconds, 12345);
+        metric(echoed.battery_charge, 77.5f);
+      }
+    }
 
     // BP valid: "#1000\r", total length 6 incl CR -> charge = 1000 * 0.1 = 100.0
     {

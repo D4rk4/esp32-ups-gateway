@@ -180,7 +180,8 @@ ParseResult MegaTecQ1Driver::parseReply(PollKind kind, const std::string& input,
   std::string line = input;
   while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
   if (line.empty() && !input.empty()) return ParseResult::Ignored;
-  if (line == "Q1" || line == "F" || line == "I" || line == "NAK" || line == "(NAK")
+  if (line == "Q1" || line == "F" || line == "I" || line == "BT" || line == "BP" ||
+      line == "NAK" || line == "(NAK")
     return ParseResult::Ignored;
   for (const unsigned char c : line) if (c < 32 || c > 126) return ParseResult::Invalid;
   Snapshot next = state;

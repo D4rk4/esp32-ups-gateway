@@ -2,6 +2,7 @@
 #include "config_model.hpp"
 #include "events.hpp"
 #include "ups_driver.hpp"
+#include <ArduinoJson.h>
 #include <array>
 #include <functional>
 
@@ -9,6 +10,8 @@ namespace gateway {
 constexpr uint64_t kFirstValidUtc=1577836800ULL;
 constexpr uint64_t kLastValidUtc=4102444799ULL;
 bool freshSnapshot(const ups::Snapshot&,uint64_t uptime_ms,uint32_t stale_ms);
+// Writes "last_transfer": null, or {"uptime_s","utc"} (utc null when the event's clock was unset).
+void writeLastTransfer(JsonObject ups,const Event* newest_on_battery);
 bool parseScheduledCommand(const std::string&,ups::Command&);
 bool scheduledCommandReady(const Config&,const ScheduleRule&,const ups::UpsDriver*,
                            const ups::Snapshot&,uint64_t uptime_ms,std::string& reason);

@@ -127,6 +127,10 @@ PersistenceStatus EventBus::persistenceStatus()const{return fixture::persistence
 bool EventBus::clearLog(std::string& error){if(fixture::fail_log_clear){error="Synthetic clear failure";return false;}fixture::events.clear();return true;}
 bool EventBus::flushPending(std::string& error){fixture::lifecycle.push_back("flush");++fixture::log_flushes;if(fixture::fail_log_flush){error="Synthetic flush failure";return false;}return true;}
 uint32_t EventBus::latestSequence()const{return fixture::events.empty()?0:fixture::events.front().seq;}
+bool EventBus::lastTransfer(Event& out)const{
+  // Mirror the real bus: the most recently published OnBattery, not the first.
+  for(auto it=fixture::events.rbegin();it!=fixture::events.rend();++it)if(it->type==EventType::OnBattery){out=*it;return true;}return false;
+}
 ManagementService::ManagementService(const Config& c,UpsService& u,EventBus& e):config_(c),ups_(u),events_(e),scheduler_(c){}
 std::string ManagementService::alarmsJson()const{return alarms_.json();}
 std::string ManagementService::historyJson(size_t limit)const{fixture::history_limit=limit;return history_.json(config_.history_interval_s,limit);}
