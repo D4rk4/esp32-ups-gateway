@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shlex
 import shutil
+import re
 import subprocess
 import sys
 import tempfile
@@ -23,6 +24,12 @@ package = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(package)
 
 
+FIXTURE_VERSION = "9.8.7"  # deliberately not the real version: the name must come from platformio.ini
+ARCHIVE_NAME = f"esp32-ups-gateway-v{FIXTURE_VERSION}.zip"
+ICON_LICENCES = ("COPYING-ICONS", "COPYING.LESSER", "COPYING.GPL-3")
+ICON_FILES = (*ICON_LICENCES, "emblem-error.svg")
+
+
 def process(data, returncode=0):
     return subprocess.CompletedProcess(["unit-test-fake"], returncode, json.dumps(data), "")
 
@@ -34,13 +41,39 @@ def fixture(root):
                  "integration/observium/esp32ups.inc.php", "tests/test_fixture.py",
                  "firmware/bootloader.bin", "firmware/partitions.bin", "firmware/firmware.bin",
                  "firmware/SHA256SUMS.txt", "firmware/build-info.json", "docs/guide.md",
-                 "reference/source.txt"):
+                 *(f"third_party/breeze-icons/{name}" for name in ICON_FILES)):
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("initial " + name, encoding="utf-8")
+    (root / "platformio.ini").write_text(
+        "build_flags =\n  -DFIRMWARE_VERSION=\\\"" + FIXTURE_VERSION + "\\\"\n", encoding="utf-8")
 
 
 class ReleasePackageTests(unittest.TestCase):
+    def test_archive_name_follows_platformio_ini_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture(root)
+            with mock.patch.object(package, "ROOT", root), \
+                 mock.patch.object(package, "validate_images"), \
+                 mock.patch.object(package, "run_release_gate", return_value=True), \
+                 redirect_stdout(io.StringIO()):
+                self.assertEqual(package.main(), 0)
+            self.assertEqual([path.name for path in (root / "dist").iterdir()], [ARCHIVE_NAME])
+
+    def test_missing_version_define_publishes_nothing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture(root)
+            (root / "platformio.ini").write_text("build_flags =\n  -DOTHER=1\n", encoding="utf-8")
+            with mock.patch.object(package, "ROOT", root), \
+                 mock.patch.object(package, "validate_images"), \
+                 mock.patch.object(package, "run_release_gate", return_value=True), \
+                 redirect_stdout(io.StringIO()):
+                with self.assertRaises(ValueError):
+                    package.main()
+            self.assertFalse((root / "dist").exists())
+
     def assert_existing_path_blocks_package(self, kind):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
@@ -54,7 +87,7 @@ class ReleasePackageTests(unittest.TestCase):
                 destination.symlink_to(outside, target_is_directory=True)
             else:
                 destination.mkdir()
-            archive = destination / package.ARCHIVE
+            archive = destination / ARCHIVE_NAME
             if kind == "file":
                 archive.write_bytes(b"existing archive")
             elif kind in ("broken symlink", "target symlink"):
@@ -104,7 +137,7 @@ class ReleasePackageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             fixture(root)
-            archive = root / "dist" / package.ARCHIVE
+            archive = root / "dist" / ARCHIVE_NAME
             def competitor(_output):
                 archive.write_bytes(b"competing release")
                 return None
@@ -153,7 +186,7 @@ class ReleasePackageTests(unittest.TestCase):
                         package.main()
                     if stage == "after gate":
                         make_temp.assert_not_called()
-                self.assertFalse((destination / package.ARCHIVE).exists())
+                self.assertFalse((destination / ARCHIVE_NAME).exists())
                 if stage == "before publish":
                     self.assertEqual(list((outside / "moved").iterdir()), [])
                 else:
@@ -283,13 +316,13 @@ class ReleasePackageTests(unittest.TestCase):
                  mock.patch.object(gate, "run_checks", side_effect=mutate_gate_input), \
                  redirect_stdout(io.StringIO()):
                 self.assertEqual(package.main(), 1)
-            self.assertFalse((root / "dist/esp32-ups-gateway-v0.2.0.zip").exists())
+            self.assertFalse((root / "dist" / ARCHIVE_NAME).exists())
 
     def test_archive_write_error_leaves_no_release_or_temporary_file(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             fixture(root)
-            archive = root / "dist/esp32-ups-gateway-v0.2.0.zip"
+            archive = root / "dist" / ARCHIVE_NAME
             with mock.patch.object(package, "ROOT", root), \
                  mock.patch.object(package, "validate_images"), \
                  mock.patch.object(package, "run_release_gate", return_value=True), \
@@ -314,8 +347,37 @@ class ReleasePackageTests(unittest.TestCase):
                  mock.patch.object(package, "run_release_gate", side_effect=change_live_tree), \
                  redirect_stdout(io.StringIO()):
                 self.assertEqual(package.main(), 0)
-            with zipfile.ZipFile(root / "dist/esp32-ups-gateway-v0.2.0.zip") as archive:
+            with zipfile.ZipFile(root / "dist" / ARCHIVE_NAME) as archive:
                 self.assertEqual(archive.read("esp32-ups-gateway/src/example.cpp"), b"initial src/example.cpp")
+
+    def test_archive_ships_the_vendored_icon_licences_and_sources(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture(root)
+            with mock.patch.object(package, "ROOT", root), \
+                 mock.patch.object(package, "validate_images"), \
+                 mock.patch.object(package, "run_release_gate", return_value=True), \
+                 redirect_stdout(io.StringIO()):
+                self.assertEqual(package.main(), 0)
+            with zipfile.ZipFile(root / "dist" / ARCHIVE_NAME) as archive:
+                for name in ICON_FILES:
+                    self.assertEqual(archive.read("esp32-ups-gateway/third_party/breeze-icons/" + name),
+                                     ("initial third_party/breeze-icons/" + name).encode())
+
+    def test_release_without_a_vendored_icon_licence_publishes_nothing(self):
+        for name in ICON_LICENCES:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                fixture(root)
+                (root / "third_party/breeze-icons" / name).unlink()
+                with mock.patch.object(package, "ROOT", root), \
+                     mock.patch.object(package, "validate_images"), \
+                     mock.patch.object(package, "run_release_gate", return_value=True) as run_gate, \
+                     redirect_stdout(io.StringIO()):
+                    with self.assertRaisesRegex(ValueError, "third_party/breeze-icons/" + re.escape(name)):
+                        package.main()
+                run_gate.assert_not_called()
+                self.assertFalse((root / "dist").exists())
 
     def test_skip_option_is_not_accepted(self):
         result = subprocess.run([sys.executable, str(ROOT / "tools/package_release.py"), "--skip"],
@@ -328,7 +390,7 @@ class ReleasePackageTests(unittest.TestCase):
             with self.subTest(existing_archive=existing), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 fixture(root)
-                archive = root / "dist/esp32-ups-gateway-v0.2.0.zip"
+                archive = root / "dist" / ARCHIVE_NAME
                 if existing:
                     archive.parent.mkdir()
                     archive.write_bytes(b"existing archive")
@@ -370,7 +432,7 @@ class UnsupportedGateTests(unittest.TestCase):
             with self.subTest(changed=changed), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 fixture(root)
-                archive = root / "dist/esp32-ups-gateway-v0.2.0.zip"
+                archive = root / "dist" / ARCHIVE_NAME
                 def alter(snapshot, *args):
                     (snapshot / changed / "changed-file").write_text("changed")
                     return "PASS", "unit-test fake"
@@ -393,7 +455,7 @@ class UnsupportedGateTests(unittest.TestCase):
                 with self.subTest(check=failed, status=status), tempfile.TemporaryDirectory() as directory:
                     root = Path(directory)
                     fixture(root)
-                    archive = root / "dist/esp32-ups-gateway-v0.2.0.zip"
+                    archive = root / "dist" / ARCHIVE_NAME
                     checks = {name: ("PASS", "unit-test fake") for name in gate.CHECKS}
                     checks[failed] = (status, "unit-test fake")
                     with mock.patch.object(package, "ROOT", root), \
@@ -412,7 +474,7 @@ class UnsupportedGateTests(unittest.TestCase):
                  mock.patch.object(package, "validate_images"), \
                  mock.patch.object(gate, "run_checks", return_value=checks):
                 self.assertEqual(package.main(), 0)
-            self.assertTrue((root / "dist/esp32-ups-gateway-v0.2.0.zip").is_file())
+            self.assertTrue((root / "dist" / ARCHIVE_NAME).is_file())
 
     def test_existing_empty_dist_accepts_a_gated_release(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -427,7 +489,7 @@ class UnsupportedGateTests(unittest.TestCase):
                 except FileExistsError:
                     self.fail("An empty dist directory must not prevent packaging")
                 self.assertEqual(result, 0)
-            archive = root / "dist/esp32-ups-gateway-v0.2.0.zip"
+            archive = root / "dist" / ARCHIVE_NAME
             self.assertTrue(zipfile.is_zipfile(archive))
 
 
@@ -444,6 +506,17 @@ class GateBehaviorTests(unittest.TestCase):
             self.assertIn("src/example.cpp", files)
             self.assertNotIn("src/__pycache__/foo.py", files)
             self.assertNotIn("src/foo.pyc", files)
+
+    def test_inventory_needs_no_reference_directory_and_never_packs_one(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture(root)
+            self.assertFalse((root / "reference").exists(), "reference/ is gitignored: a clean clone has none")
+            clean = gate.inventory(root)
+            stray = root / "reference/vendor.bin"
+            stray.parent.mkdir()
+            stray.write_text("vendor file")
+            self.assertEqual(gate.inventory(root), clean)
 
     def test_version_blocks_failed_or_unavailable_command(self):
         failed = subprocess.CompletedProcess(["fake"], 1, "1.0", "")
@@ -1234,7 +1307,7 @@ class FreshnessTests(unittest.TestCase):
     def test_packaged_files_and_new_ino_change_fingerprint(self):
         names = ("integration/observium/esp32ups.inc.php", "firmware/SHA256SUMS.txt",
                  "firmware/build-info.json", "README.md", "docs/guide.md",
-                 "reference/source.txt", "LICENSE", "THIRD_PARTY.md", ".gitignore")
+                 "LICENSE", "THIRD_PARTY.md", ".gitignore")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             fixture(root)
@@ -1286,7 +1359,7 @@ class FreshnessTests(unittest.TestCase):
                      redirect_stdout(io.StringIO()):
                     with self.assertRaisesRegex(ValueError, name):
                         package.main()
-                self.assertFalse((root / "dist/esp32-ups-gateway-v0.2.0.zip").exists())
+                self.assertFalse((root / "dist" / ARCHIVE_NAME).exists())
 
     def test_copy_does_not_follow_file_replaced_with_symlink(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1310,7 +1383,7 @@ class FreshnessTests(unittest.TestCase):
                  redirect_stdout(io.StringIO()):
                 with self.assertRaises((OSError, ValueError)):
                     package.main()
-            self.assertFalse((root / "dist/esp32-ups-gateway-v0.2.0.zip").exists())
+            self.assertFalse((root / "dist" / ARCHIVE_NAME).exists())
 
     def test_owned_files_in_build_dist_and_backups_are_inventoried(self):
         with tempfile.TemporaryDirectory() as directory:

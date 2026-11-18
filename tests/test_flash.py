@@ -148,6 +148,7 @@ class FlashTests(unittest.TestCase):
         source.mkdir(parents=True)
         for name in ("bootloader.bin", "partitions.bin", "firmware.bin"):
             (source / name).write_bytes((self.images / name).read_bytes())
+        (self.root / "platformio.ini").write_text('build_flags =\n  -DFIRMWARE_VERSION=\\"9.8.7\\"\n')
         sys.modules.setdefault("flash", flash)
         build_spec = importlib.util.spec_from_file_location("gateway_build", MODULE.parent / "build.py")
         build = importlib.util.module_from_spec(build_spec)
@@ -156,10 +157,32 @@ class FlashTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 build.main()
         info = json.loads((self.root / "firmware" / "build-info.json").read_text())
+        self.assertEqual(info["firmware"], "9.8.7")
         self.assertEqual(info.get("application_slots"), 2)
         self.assertNotIn("single_application_slot", info)
         self.assertEqual(info["appcfg"], {"offset": "0xF00000", "size": "0x10000"})
         self.assertEqual((self.root / "firmware" / "partitions.bin").read_bytes(), partition_table())
+
+    def test_firmware_version_is_read_from_platformio_ini(self):
+        (self.root / "platformio.ini").write_text('build_flags =\n  -DFIRMWARE_VERSION=\\"1.2.3\\"\n  -DOTHER=1\n')
+        self.assertEqual(flash.firmware_version(self.root), "1.2.3")
+        self.assertRegex(flash.firmware_version(MODULE.parents[1]), r"^\d+\.\d+\.\d+$")
+
+    def test_firmware_version_missing_define_fails_loudly(self):
+        (self.root / "platformio.ini").write_text("build_flags =\n  -DOTHER=1\n")
+        with self.assertRaises(flash.FlashError):
+            flash.firmware_version(self.root)
+
+    def test_build_without_version_define_fails_before_writing_metadata(self):
+        (self.root / "platformio.ini").write_text("build_flags =\n  -DOTHER=1\n")
+        build_spec = importlib.util.spec_from_file_location("gateway_build", MODULE.parent / "build.py")
+        build = importlib.util.module_from_spec(build_spec)
+        with patch.dict(sys.modules, {"flash": flash}):  # build's `from flash import` must see this module
+            build_spec.loader.exec_module(build)
+        with patch.object(build, "ROOT", self.root), patch.object(build.subprocess, "run"):
+            with self.assertRaises(flash.FlashError):
+                build.main()
+        self.assertFalse((self.root / "firmware").exists())
 
     def test_ota_partition_layout_accepts_exact_binary_table(self):
         table = partition_table()

@@ -53,6 +53,15 @@ class FlashError(ValueError):
     """An operation cannot safely continue."""
 
 
+def firmware_version(root: Path) -> str:
+    """The single source of the release version: -DFIRMWARE_VERSION in platformio.ini."""
+    ini = root / "platformio.ini"
+    match = re.search(r'-DFIRMWARE_VERSION=\\"([^"\\\s]+)\\"', ini.read_text(encoding="utf-8"))
+    if not match:
+        raise FlashError(f"FIRMWARE_VERSION define not found in {ini}")
+    return match.group(1)
+
+
 def partition_name(raw_name: bytes) -> str:
     try:
         name = raw_name.split(b"\0", 1)[0].decode("ascii")

@@ -17,12 +17,13 @@ EXTENSIONS = {".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".hxx", ".ino", ".py", 
               ".js", ".mjs", ".cjs", ".jsx", ".html"}
 NON_CODE = {".md", ".txt", ".example", ".yml", ".yaml"}
 SKIP_DIRS = {"__pycache__"}
-DIRECTORIES = (*SOURCE_DIRS, "tests", "firmware", "docs", "reference")
+DIRECTORIES = (*SOURCE_DIRS, "tests", "firmware", "docs", "third_party")
 ROOT_FILES = ("README.md", "LICENSE", "THIRD_PARTY.md", "requirements.txt",
               "platformio.ini", "partitions.csv", ".gitignore")
 REQUIRED = (*ROOT_FILES, "firmware/bootloader.bin", "firmware/partitions.bin",
             "firmware/firmware.bin", "firmware/SHA256SUMS.txt", "firmware/build-info.json",
-            "tools/semgrep-release.yml")
+            "tools/semgrep-release.yml", "third_party/breeze-icons/COPYING-ICONS",
+            "third_party/breeze-icons/COPYING.LESSER", "third_party/breeze-icons/COPYING.GPL-3")
 CHECKS = ("semgrep", "trivy", "coverage", "crapper", "dryer", "mutator", "freshness")
 
 

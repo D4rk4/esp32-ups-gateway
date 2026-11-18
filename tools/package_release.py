@@ -6,16 +6,16 @@ import os
 import sys
 import tempfile
 import zipfile
-from flash import validate_images
+from flash import firmware_version, validate_images
 from release_gate import copy_snapshot, file_digests, fingerprint, inventory, run as run_release_gate
 
 ROOT=Path(__file__).resolve().parents[1]
-ARCHIVE='esp32-ups-gateway-v0.2.0.zip'
 
 
 def main():
+    archive_name=f'esp32-ups-gateway-v{firmware_version(ROOT)}.zip'
     destination=ROOT/'dist'
-    archive=destination/ARCHIVE
+    archive=destination/archive_name
     if destination.is_symlink() or os.path.lexists(archive):
         existing=destination if destination.is_symlink() else archive
         print(f'{existing}: already exists or is a symlink and is NOT the result of this run')
@@ -36,7 +36,7 @@ def main():
         if fingerprint(snapshot)!=before:raise ValueError('release snapshot changed during checks')
         destination.mkdir(exist_ok=True)
         if destination.is_symlink():raise ValueError(f'distribution directory is a symlink: {destination}')
-        descriptor,temp_name=tempfile.mkstemp(prefix='.'+ARCHIVE+'.',suffix='.tmp',dir=destination)
+        descriptor,temp_name=tempfile.mkstemp(prefix='.'+archive_name+'.',suffix='.tmp',dir=destination)
         try:
             os.close(descriptor)
             with zipfile.ZipFile(temp_name,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as output:

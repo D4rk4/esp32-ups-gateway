@@ -7,10 +7,11 @@ import os
 import shutil
 import subprocess
 import sys
-from flash import validate_images
+from flash import firmware_version, validate_images
 
 ROOT=Path(__file__).resolve().parents[1]
 def main():
+    version=firmware_version(ROOT)
     environment=os.environ.copy()
     environment['PLATFORMIO_SETTING_ENABLE_TELEMETRY']='no'
     subprocess.run([sys.executable,'-m','platformio','run','-e','esp32-poe-16mb'],cwd=ROOT,env=environment,check=True)
@@ -21,7 +22,7 @@ def main():
     hashes={name:hashlib.sha256((output/name).read_bytes()).hexdigest() for name in names}
     (output/'SHA256SUMS.txt').write_text(''.join(f'{hashes[name]}  {name}\n' for name in names),encoding='ascii')
     validate_images(output)
-    info={'target':'ESP32-POE WROOM 16MB + MOD-RS232','firmware':'0.2.0','platformio':'6.1.18','platform':'espressif32@6.12.0','framework':'Arduino ESP32 2.0.17','arduinojson':'6.21.5','application_slots':2,'appcfg':{'offset':'0xF00000','size':'0x10000'},'images':{name:{'bytes':(output/name).stat().st_size,'sha256':hashes[name]} for name in names}}
+    info={'target':'ESP32-POE WROOM 16MB + MOD-RS232','firmware':version,'platformio':'6.1.18','platform':'espressif32@6.12.0','framework':'Arduino ESP32 2.0.17','arduinojson':'6.21.5','application_slots':2,'appcfg':{'offset':'0xF00000','size':'0x10000'},'images':{name:{'bytes':(output/name).stat().st_size,'sha256':hashes[name]} for name in names}}
     (output/'build-info.json').write_text(json.dumps(info,indent=2,ensure_ascii=False)+'\n')
     print('Prepared split images:',output)
     print('No combined flash image is generated; appcfg is excluded.')
