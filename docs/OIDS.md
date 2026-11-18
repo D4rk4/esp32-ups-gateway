@@ -34,7 +34,7 @@ Add the prefix `1.3.6.1.4.1.318.1.1.1.` to each suffix below.
 | 1.2.3.0 | upsAdvIdentSerialNumber | OCTET STRING | Only if the driver provided a serial number |
 | 8.1.0 | upsCommStatus | INTEGER | 1 connection present; 2 connection absent |
 | 2.1.1.0 | upsBasicBatteryStatus | INTEGER | 1 unknown; 2 no low-battery sign; 3 low battery |
-| 4.1.1.0 | upsBasicOutputStatus | INTEGER | 1 unknown; 2 online; 3 battery; 9 bypass; 15 test |
+| 4.1.1.0 | upsBasicOutputStatus | INTEGER | 1 unknown or stale; 2 online; 3 on battery; 9 bypass; 15 battery test (self-test with utility present) |
 | 3.2.1.0 | upsAdvInputLineVoltage | Gauge32 | Volts |
 | 3.3.1.0 | upsHighPrecInputLineVoltage | Gauge32 | Tenths of a volt |
 | 3.2.4.0 | upsAdvInputFrequency | Gauge32 | Hertz |
@@ -54,9 +54,20 @@ interface it is UPS temperature, not a separate battery sensor. The bypass=9
 code is a compatible representation of detected bypass; Q1 does not report the
 reason it was turned on.
 
-Provided below by the adapter for future drivers, but basic Q1 does not supply
-them: `2.2.1.0` — charge (%); `2.2.3.0` — runtime (TimeTicks);
-`4.2.2.0` / `4.3.2.0` — measured output frequency (Hz / 0.1 Hz).
+`4.1.1.0` is derived from the driver's output mode only, in this order: utility
+failure → 3; a running battery test → 15; detected bypass → 9; otherwise 2
+(1 while the status is unknown or stale). A real outage therefore always wins
+over a test: when the Q1 test bit is set together with utility failure, the
+object reports 3. Firmware 0.2.1 and earlier reported 15 whenever the test bit
+was set, even with utility failed.
+
+`2.2.1.0` — charge (%, Gauge32) and `2.2.3.0` — runtime (TimeTicks) are present
+only after the UPS has answered the read-only `BT` (runtime) and `BP` (charge)
+queries, which the gateway repeats about every 30 seconds. A UPS that does not
+answer them leaves the objects absent (three consecutive failures disable that
+query until restart), and both objects are absent while the RS232 link is lost.
+Measured output frequency, `4.2.2.0` / `4.3.2.0` (Hz / 0.1 Hz), is provided by
+the adapter for future drivers but is not supplied by the Q1 driver.
 
 Unknown/unsupported measurements are absent: GET gets `noSuchInstance`, walk
 skips them. On RS232 loss measurements also stop being reported as current;
@@ -137,8 +148,8 @@ use `R0000` because the meaning of zero is not established.
 
 ## Notifications
 
-SNMPv2c TRAP only. INFORM, SNMPv1 and SNMPv3 are not implemented in version
-0.2.0. In each trap the first varbinds are sysUpTime.0 and snmpTrapOID.0, then
+SNMPv2c TRAP only. INFORM, SNMPv1 and SNMPv3 are not implemented. In each
+trap the first varbinds are sysUpTime.0 and snmpTrapOID.0, then
 `mtrapargsString.0` (`1.3.6.1.4.1.318.2.3.3.0`) and sysName.0.
 
 | Trap OID | Event |
@@ -159,4 +170,21 @@ the local stack, not acknowledgment of receipt.
 
 General Q1 fault, test start/end, and the shutdown procedure go to the local
 journal. They are not substituted by other APC events such as overload,
-battery replacement, or test result, which Q1 does not report.
+battery replacement, or test result, which Q1 does not report. A battery test
+while utility power is present sends no upsOnBattery trap and writes no
+on-battery journal event.
+
+## Hardware observation
+
+2026-11-18, one Olimex ESP32-POE 16 MB board, firmware 0.2.1, Inform Sinus EVO
+3000. With the read community, SNMPv2c GET, a GETNEXT walk and a GETBULK walk
+returned the 7 system objects and 22 PowerNet objects; the bulk walk listed the
+same OIDs as the GETNEXT walk and ended with endOfMibView; values matched the
+web status taken at the same moment; absent objects returned noSuchInstance; a
+wrong community and an SNMPv1 request got no answer. One SET was also verified:
+with a write community configured and controls and power controls enabled,
+upsAdvTestRuntimeCalibration (`7.2.5.0`) = 3 during a running deep test returned
+noError, the journal recorded `test_cancel` queued, transmitted and "Test
+ended", and upsBasicOutputStatus went from 15 to 2 within 5 s; before that SET,
+GET of `7.2.5.0` with the write community returned 1. The other control objects
+and traps were not exercised on hardware.

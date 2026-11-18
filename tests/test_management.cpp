@@ -29,6 +29,11 @@ int main(){
   s.load_percent={0,false};changes=alarms.update(c,s,6001);assert(changes.size()==1&&changes[0].severity==1&&alarms.active().empty());
   s.input_voltage={0,false};s.load_percent={NAN,true};alarms.update(c,s,6002);assert(alarms.active().empty());
   alarms.update(c,s,16000);assert(alarms.active().size()==1&&alarms.active()[0].id=="link");
+  {// a self-test with utility present raises no on-battery alarm; a real outage still does
+    AlarmTracker testing;auto probe=fresh(1000);probe.load_percent={10,true};probe.output_mode=ups::OutputMode::BatteryTest;probe.test_running=true;
+    testing.update(c,probe,1000);assert(testing.active().empty());
+    probe.mains_failed=true;probe.output_mode=ups::OutputMode::OnBattery;testing.update(c,probe,1001);assert(testing.active().size()==1&&testing.active()[0].id=="on_battery");
+  }
   // Durable claim precedes the actual enqueue; replay, overdue and failed saves never enqueue.
   const uint64_t t=1794000000; c=base();c.schedules={once(t+60)};
   ScheduleJournal durable;int sends=0,saves=0;bool fail_claim=false;

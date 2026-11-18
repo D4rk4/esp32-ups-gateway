@@ -4,7 +4,7 @@
 
 namespace ups {
 struct Metric { float value{0}; bool valid{false}; };
-enum class OutputMode { Unknown, Online, OnBattery, Bypass, Off };
+enum class OutputMode { Unknown, Online, OnBattery, Bypass, Off, BatteryTest };
 struct Snapshot {
   bool connected{false};
   uint32_t last_success_ms{0};

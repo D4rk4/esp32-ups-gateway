@@ -189,6 +189,13 @@ void filters_status_and_handlers(){
   for(const auto* key:added)check(data["ups"].containsKey(key),"status includes each added metric and flag");
   check(data["ups"]["input_fault_voltage"].as<int>()==201&&data["ups"]["nominal_voltage"].as<int>()==230&&data["ups"]["nominal_current"].as<int>()==6&&data["ups"]["nominal_battery_voltage"].as<int>()==24&&data["ups"]["nominal_frequency"].as<int>()==50,"fresh status exposes parsed metrics");
   check(data["ups"]["bypass_or_avr"].is<bool>()&&data["ups"]["bypass_or_avr"].as<bool>()&&data["ups"]["standby_topology"].is<bool>()&&!data["ups"]["standby_topology"].as<bool>(),"fresh status exposes both parsed flags");
+  {// a running self-test with utility present reports the battery_test output mode string
+    const auto saved=fixture::snapshot;
+    fixture::snapshot.output_mode=ups::OutputMode::BatteryTest;fixture::snapshot.test_running=true;fixture::snapshot.mains_failed=false;
+    response=fixture::request(HTTP_GET,"/api/status","",admin.cookie);data=payload(response);
+    check(data["ups"]["output_mode"].as<std::string>()=="battery_test"&&data["ups"]["test_running"].as<bool>(),"self-test with utility present reports battery_test output mode");
+    fixture::snapshot=saved;
+  }
   fixture::snapshot.nominal_voltage.valid=false;fixture::snapshot.nominal_current.valid=false;fixture::snapshot.nominal_battery_voltage.valid=false;fixture::snapshot.nominal_frequency.valid=false;
   response=fixture::request(HTTP_GET,"/api/status","",admin.cookie);data=payload(response);
   for(const auto* key:{"nominal_voltage","nominal_current","nominal_battery_voltage","nominal_frequency"})check(data["ups"].containsKey(key)&&data["ups"][key].isNull(),"unreported rating is present and null");

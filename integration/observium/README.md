@@ -28,7 +28,16 @@ cd /opt/observium
 
 Expected signs: OS `esp32-ups-gateway`, PowerNet-MIB connected, real voltages/load/input frequency/temperature and link/power states. First achieve correct Q1 exchange: before it the measurement OIDs are absent. Which of the supported objects your CE turns into sensors is checked by discovery output; in case of mismatch the local definition/sensors will need adapting to the installed version.
 
-Base Q1 does not report charge in percent, runtime and measured output frequency. Their absence is expected. Battery string voltage appears after confirming `battery_multiplier`. Temperature PowerNet objects with the historical name `upsAdvBatteryTemperature` describe the internal UPS temperature; this is not a declaration of a separate battery sensor. On RS232 loss SNMP communication with the gateway stays available, `upsCommStatus` reports the absence of a link, stale measurements are not issued as fresh.
+Charge in percent and runtime are not part of the base Q1 reply. The gateway
+reads them with the read-only `BT` and `BP` queries about every 30 seconds, so
+`2.2.1.0` and `2.2.3.0` are present once the UPS answers those queries and
+absent if it does not (see `docs/OIDS.md`). Measured output frequency is not
+supplied by the Q1 driver, so its absence is expected. Battery string voltage
+appears after confirming `battery_multiplier`. Temperature PowerNet objects
+with the historical name `upsAdvBatteryTemperature` describe the internal UPS
+temperature; this is not a declaration of a separate battery sensor. On RS232
+loss SNMP communication with the gateway stays available, `upsCommStatus`
+reports the absence of a link, stale measurements are not issued as fresh.
 
 ## 2. Receiving traps
 

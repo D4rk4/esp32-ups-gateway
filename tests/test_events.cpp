@@ -15,8 +15,14 @@ int main(){
   s.connected=false;assert(has(e.observe(s,6000),EventType::LinkLost));assert(e.observe(s,7000).empty());
   s.connected=true;s.mains_failed=false;s.low_battery=false;events=e.observe(s,8000);
   assert(has(events,EventType::LinkEstablished));assert(!has(events,EventType::PowerRestored));assert(!has(events,EventType::LowBatteryCleared));
-  s.test_running=true;assert(has(e.observe(s,9000),EventType::TestStarted));
+  // A self-test with utility present is not a transfer: no on-battery event, no PowerNet trap.
+  s.test_running=true;events=e.observe(s,9000);assert(has(events,EventType::TestStarted));
+  assert(!has(events,EventType::OnBattery)&&!has(events,EventType::PowerRestored)&&powerNetTrapNumber(EventType::TestStarted)==0);
   s.test_running=false;events=e.observe(s,10000);assert(has(events,EventType::TestEnded));assert(powerNetTrapNumber(EventType::TestEnded)==0);
+  assert(!has(events,EventType::OnBattery)&&!has(events,EventType::PowerRestored));
+  // A real outage during a test is still reported as an outage.
+  s.test_running=true;e.observe(s,10500);s.mains_failed=true;assert(has(e.observe(s,10600),EventType::OnBattery));
+  s.mains_failed=false;s.test_running=false;e.observe(s,10700);
   s.mains_failed=true;e.observe(s,11000);s.mains_failed=false;assert(has(e.observe(s,12000),EventType::PowerRestored));
   assert(powerNetTrapNumber(EventType::UpsFault)==0);assert(powerNetTrapNumber(EventType::OnBattery)==5);
   EventEngine initial; s.connected=false;assert(has(initial.observe(s,10000),EventType::LinkLost));

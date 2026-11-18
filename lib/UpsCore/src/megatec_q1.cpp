@@ -78,8 +78,10 @@ bool parseStatus(const std::string& line, Snapshot& next) {
       &next.ups_fault,&next.standby_topology,&next.test_running,&next.shutdown_active,&next.beeper_on}};
   for (std::size_t i=0; i<bits.size(); ++i) *bits[i] = f[7][i] == '1';
   next.status_valid = true;
+  // One decision: a real outage is never a test, a running self-test is its own mode, then bypass, then online.
   next.output_mode = next.mains_failed ? OutputMode::OnBattery :
-      (next.bypass_or_avr && !next.standby_topology ? OutputMode::Bypass : OutputMode::Online);
+      (next.test_running ? OutputMode::BatteryTest :
+       (next.bypass_or_avr && !next.standby_topology ? OutputMode::Bypass : OutputMode::Online));
   next.raw_status = f[7];
   next.last_status_line = line;
   return true;

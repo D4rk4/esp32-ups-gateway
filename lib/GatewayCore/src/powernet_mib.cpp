@@ -74,8 +74,7 @@ PowerNetMib::PowerNetMib(const Config& c,const ups::Snapshot& s,uint32_t uptime,
   integer(root+"2.1.1.0",(!s.connected||!s.status_valid)?1:(s.low_battery?3:2));
   int32_t mode=1;
   if(s.connected&&s.status_valid){
-    if(s.test_running)mode=15;
-    else switch(s.output_mode){case ups::OutputMode::Online:mode=2;break;case ups::OutputMode::OnBattery:mode=3;break;case ups::OutputMode::Bypass:mode=9;break;case ups::OutputMode::Off:mode=7;break;default:break;}
+    switch(s.output_mode){case ups::OutputMode::Online:mode=2;break;case ups::OutputMode::OnBattery:mode=3;break;case ups::OutputMode::BatteryTest:mode=15;break;case ups::OutputMode::Bypass:mode=9;break;case ups::OutputMode::Off:mode=7;break;default:break;}
   }
   integer(root+"4.1.1.0",mode);
   metric("3.2.1.0",s.input_voltage);metric("3.3.1.0",s.input_voltage,10);

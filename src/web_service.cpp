@@ -69,7 +69,7 @@ std::string peerKey(httpd_req_t* r){
 }
 const char* modeName(const ups::Snapshot& state,bool fresh){
   if(!fresh)return "unknown";
-  switch(state.output_mode){case ups::OutputMode::Online:return "online";case ups::OutputMode::OnBattery:return "on_battery";case ups::OutputMode::Bypass:return "bypass";case ups::OutputMode::Off:return "off";default:return "unknown";}
+  switch(state.output_mode){case ups::OutputMode::Online:return "online";case ups::OutputMode::OnBattery:return "on_battery";case ups::OutputMode::BatteryTest:return "battery_test";case ups::OutputMode::Bypass:return "bypass";case ups::OutputMode::Off:return "off";default:return "unknown";}
 }
 void metric(JsonObject object,const char* key,const ups::Metric& value,bool fresh){if(fresh&&value.valid&&std::isfinite(value.value))object[key]=value.value;else object[key]=nullptr;}
 void flag(JsonObject object,const char* key,bool value,bool fresh){if(fresh)object[key]=value;else object[key]=nullptr;}

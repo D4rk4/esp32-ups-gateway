@@ -66,6 +66,16 @@ int main() {
     assert(s.output_mode==entry.second);
   }
   assert(s.mains_failed && s.low_battery && s.bypass_or_avr && s.ups_fault && s.standby_topology && s.test_running && s.shutdown_active && s.beeper_on);
+  // A running self-test with utility present is its own mode (observed on hardware: "00000100").
+  // Precedence: a real outage beats a test, a test beats bypass, bypass beats online.
+  for (const auto& entry : std::vector<std::pair<std::string,OutputMode>>{
+      {"00000100",OutputMode::BatteryTest},{"00100100",OutputMode::BatteryTest},
+      {"10000100",OutputMode::OnBattery},
+      {"00100000",OutputMode::Bypass},{"00000000",OutputMode::Online},
+      {"00101100",OutputMode::BatteryTest}}) {
+    assert(driver.parseReply(PollKind::Status,"(230.0 230.0 230.0 050 50.0 24.0 30.0 "+entry.first,s)==ParseResult::Accepted);
+    assert(s.output_mode==entry.second);
+  }
   const std::vector<std::string> individualBits{
       "10000000","01000000","00100000","00010000","00001000","00000100","00000010","00000001"};
   for (std::size_t i=0; i<individualBits.size(); ++i) {

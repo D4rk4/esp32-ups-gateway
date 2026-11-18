@@ -14,6 +14,15 @@ int main(){
   assert(!m.get(oid("1.3.6.1.4.1.318.1.1.1.2.2.3.0"),v)); // no fabricated runtime
   assert(!m.get(oid("1.3.6.1.4.1.318.1.1.1.4.2.2.0"),v)); // input frequency isn't output frequency
   assert(m.get(oid("1.3.6.1.4.1.318.1.1.1.8.1.0"),v)&&v.integer==1);
+  // upsBasicOutputStatus is derived from the mode only; a self-test is its own value, and the
+  // raw test_running flag no longer overrides the mode (test plus utility failure is on battery).
+  struct ModeCase{ups::OutputMode mode;bool test_running;int expected;};
+  for(const auto& row:{ModeCase{ups::OutputMode::BatteryTest,true,15},ModeCase{ups::OutputMode::OnBattery,true,3},
+      ModeCase{ups::OutputMode::OnBattery,false,3},ModeCase{ups::OutputMode::Online,false,2},
+      ModeCase{ups::OutputMode::Bypass,false,9},ModeCase{ups::OutputMode::Off,false,7},ModeCase{ups::OutputMode::Unknown,false,1}}){
+    ups::Snapshot probe=s;probe.output_mode=row.mode;probe.test_running=row.test_running;gateway::PowerNetMib mode_mib(c,probe,0,"v");
+    assert(mode_mib.get(oid("1.3.6.1.4.1.318.1.1.1.4.1.1.0"),v)&&v.type==snmp::Type::Integer&&v.integer==row.expected);
+  }
   snmp::Oid current,next;size_t count=0;while(m.next(current,next,v)){assert(current<next);current=next;assert(++count<100);}assert(count>15);
   s.connected=false;gateway::PowerNetMib stale(c,s,100,"0.1.0");
   assert(stale.get(oid("1.3.6.1.4.1.318.1.1.1.8.1.0"),v)&&v.integer==2);
