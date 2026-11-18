@@ -20,29 +20,37 @@ the pinned versions. Keep upstream notices when redistributing modified builds.
 | APC-authored PowerNet MIB reference | https://networkupstools.org/protocols/snmp/APC-Powernet.pdf |
 | APC-authored PowerNet-MIB definitions mirror | https://raw.githubusercontent.com/librenms/librenms/master/mibs/apc/PowerNet-MIB |
 
-The user-supplied `ups_snmp_firmware_2026-11-10.zip` was used as a reference
-for KPM220 features/protocol organization. Proprietary KPM220/DL801 firmware,
-web resources, certificates and executable files are not included in this
-project. The C++ implementation is newly written. Version 0.2.0 adapts the
-classic APC management layout and includes selected APC image assets as
-described below; it is not an APC Network Management Card firmware.
+## Web UI status icons
 
-## APC web reference and assets
+The four status icons of the web UI (good, warning, critical, info) come from
+the KDE Breeze icon theme, https://github.com/KDE/breeze-icons, commit
+`8cb887ed16c13fe5fb9b6609f04e8157a083e046` (2016-07-03). The source files are
+vendored byte for byte:
 
-The user supplied `apc_hw02_aos394_rpdu_393.exe` (SHA-256
-`0a2f4aebfbbcc698cbdfe0a1d30e9ff24483632b2f460d6da7ce06c7a71398be`).
-Static resources from AOS 3.9.4 / RPDU 3.9.3 were extracted without running
-the updater or original firmware. `reference/apc-webui/` contains the
-extracted templates, CSS, images, provenance and bounded extraction tools.
-The original APC executable images are not included in this release ZIP.
+| Status | Source file |
+| --- | --- |
+| good | `icons/emblems/8/emblem-checked.svg` |
+| warning | `icons/emblems/8/emblem-warning.svg` |
+| critical | `icons/emblems/8/emblem-error.svg` |
+| info (and fallback) | `icons/emblems/8/emblem-information.svg` |
 
-APC / Schneider Electric retains its rights in original extracted resources,
-images, text and marks. The project MIT license does not apply to those
-materials or to original image bytes embedded in the live UI. Reconstructed
-templates retain explicit placeholders where the original server supplies
-runtime data. Native APC server-side handlers have not been recovered or
-ported as executable code.
+Copyright (C) 2014 Uri Herrera and others. License: GNU Lesser General Public
+License, version 3 or (at your option) any later version (SPDX:
+LGPL-3.0-or-later), as stated in the upstream `COPYING-ICONS` of that commit.
+`COPYING-ICONS` is kept verbatim in `third_party/breeze-icons/` together with
+the unmodified LGPL version 3 text (`COPYING.LESSER`, from
+https://www.gnu.org/licenses/lgpl-3.0.txt), the unmodified GPL version 3 text
+(`COPYING.GPL-3`, from https://www.gnu.org/licenses/gpl-3.0.txt), the four SVG
+files and a README with their provenance. A release ZIP built by
+`tools/package_release.py` contains the whole directory. The inline
+markup in `web/index.html` is generated from these files by
+`tools/embed_icons.py`, which writes each icon's theme colour into the markup
+instead of keeping the upstream stylesheet.
 
-Official source package page:
-https://www.se.com/us/en/download/document/APC_RPDU_393_EN/
-
+The project's own source is GPL-2.0-or-later; the embedded Breeze icons are
+LGPL-3.0-or-later, which cannot be combined under GNU GPL version 2 alone, so
+firmware images and release packages are distributed under GPL-3.0-or-later
+through the "or later" option of the project licence; the licence texts are
+`third_party/breeze-icons/COPYING-ICONS`,
+`third_party/breeze-icons/COPYING.LESSER` and
+`third_party/breeze-icons/COPYING.GPL-3`.
