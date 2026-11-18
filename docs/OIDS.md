@@ -186,5 +186,15 @@ with a write community configured and controls and power controls enabled,
 upsAdvTestRuntimeCalibration (`7.2.5.0`) = 3 during a running deep test returned
 noError, the journal recorded `test_cancel` queued, transmitted and "Test
 ended", and upsBasicOutputStatus went from 15 to 2 within 5 s; before that SET,
-GET of `7.2.5.0` with the write community returned 1. The other control objects
+GET of `7.2.5.0` with the write community returned 1. On 0.2.1 the other control objects
 and traps were not exercised on hardware.
+
+2026-11-18, the same board on firmware 0.2.2. An SNMPv2c SET of
+upsAdvTestDiagnostics (`7.2.2.0`) = 2 returned noError and started a short
+test: the journal recorded `test_short` queued, transmitted, "UPS test in
+progress" 1 s later and "Test ended" 11 s after the start, and
+upsBasicOutputStatus read 15 (battery test with utility present) from about
+1 s to 11 s after the SET and then 2 again, with the load not interrupted. A
+timed test started and cancelled from the web UI also read 15 while it ran and 2
+again when `test_cancel` was sent. The remaining control objects and traps have
+not been exercised on hardware.

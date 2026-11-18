@@ -76,20 +76,37 @@ before a new slot was selected. The likely cause is a stack overflow: its upload
 handler keeps a 4 KB buffer on the 8 KB HTTP task stack, and the computed call
 depth on that path exceeds the stack; no crash log was captured to confirm it.
 The step from 0.2.0 to 0.2.1 therefore needs one USB
-`update` (or `migrate`) with the PoE Ethernet cable disconnected; web update
-was verified from 0.2.1 onward: a whole `firmware.bin` uploaded over
-`POST /api/firmware` as a logged-in administrator with the CSRF token,
-`Content-Type: application/octet-stream` and `X-Firmware-Confirm: UPDATE`
-answered `{"ok":true,"rebooting":true}` within about 6 s, rebooted to the other
-slot (`ota_1`), and came back with a new boot id; it stayed on `ota_1` after
-the 120 s verification window, configuration and the event log were preserved,
-and the UPS reconnected with no poll errors. Not verified: automatic rollback
-of an image that fails verification, an update between two different firmware
-versions (the same image was uploaded), or an upload from a real browser.
+`update` (or `migrate`) with the PoE Ethernet cable disconnected.
+
+Two web updates were run on one physical board (ESP32-POE-16MB with MOD-RS232 and
+an Inform Sinus EVO 3000), both as a logged-in administrator with the CSRF token,
+`Content-Type: application/octet-stream` and `X-Firmware-Confirm: UPDATE`, posting a
+whole `firmware.bin` to `POST /api/firmware`, which answered
+`{"ok":true,"rebooting":true}`:
+
+- 0.2.1 to 0.2.1 (the same image, `ota_0` to `ota_1`): the reply came within about
+  6 s and the gateway came back with a new boot id. It stayed on `ota_1` after the
+  120 s verification window, configuration and the event log were preserved, and
+  the UPS reconnected with no poll errors.
+- 0.2.1 to 0.2.2 (a different version, `ota_1` to `ota_0`): the 1,049,952-byte
+  image was sent with a script and the reply came after 5.0 s. The gateway came
+  back as 0.2.2 from `ota_0` with a new boot id and the startup event reset reason
+  `software restart`, and was still on `ota_0` at uptime 215 s, after the 120 s
+  window. `/api/config` was identical before and after (compared by hash) and the
+  event log was preserved (sequence numbers continued, 52 after 51). UPS
+  communication was re-established 2 s after boot, with 106 successful polls, 0
+  errors and output mode `online`, and the saved weekly schedule rule re-armed
+  after the boot safety window. No UPS command was sent and the load was not
+  interrupted.
+
+Not verified: automatic rollback of an image that fails verification; an upload
+from a real browser (both updates above used `curl` or a script). After the
+update, a short and a timed battery test on 0.2.2 (see README, Tested hardware)
+showed the `battery_test` output mode over SNMP and in the event log; the web
+label “On Battery (Self-Test)” was seen in the UI during the timed test.
 Updating from 0.2.1 to 0.2.2 is an ordinary update by web upload or USB
 `update`: no one-time step is needed and configuration is preserved. A gateway
-still on 0.2.0 needs the one-time USB step first. The 0.2.1 to 0.2.2 update
-itself has not yet been run on hardware.
+still on 0.2.0 needs the one-time USB step first.
 If a gateway restarts unexpectedly, the next `startup` event in the event log
 names the reset reason (for example `task watchdog` or `panic`).
 
