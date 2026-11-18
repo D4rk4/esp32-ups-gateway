@@ -1018,9 +1018,11 @@ class EnvironmentIsolationTests(unittest.TestCase):
                 "if [ \"$1\" = --version ]; then\n"
                 "    printf 'fake coverage 1.0\\n'\n"
                 "elif [ \"$1\" = run ]; then\n"
-                "    printf 'fake coverage' > \"$COVERAGE_FILE\"\n"
-                "    printf 'fake coverage' > .coverage\n"
-                "    if [ \"$(<\"$COVERAGE_FILE\")\" = 'fake coverage' ] && [ \"$(<.coverage)\" = 'fake coverage' ]; then\n"
+                "    printf 'fake coverage\\n' > \"$COVERAGE_FILE\"\n"
+                "    printf 'fake coverage\\n' > .coverage\n"
+                "    read -r first < \"$COVERAGE_FILE\"\n"
+                "    read -r second < .coverage\n"
+                "    if [ \"$first\" = 'fake coverage' ] && [ \"$second\" = 'fake coverage' ]; then\n"
                 f"        printf '%s\\n%s\\n' \"$COVERAGE_FILE\" \"$PWD\" >> {shlex.quote(str(marker))}\n"
                 "    fi\n"
                 "fi\n"
@@ -1236,7 +1238,8 @@ class QualityReportTests(unittest.TestCase):
             root = Path(directory) / "root"
             root.mkdir()
             fixture(root)
-            with mock.patch.object(gate, "command") as invoke:
+            with mock.patch.object(gate.shutil, "which", return_value="/fake/tool"), \
+                 mock.patch.object(gate, "command") as invoke:
                 status, detail = gate.check_quality_tool("mutator", root, gate.source_files(root), directory)
             self.assertEqual(status, "BLOCKED")
             self.assertIn("C/C++", detail)
