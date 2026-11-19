@@ -17,7 +17,8 @@ esp_err_t esp_partition_write(const esp_partition_t*,size_t offset,const void* s
   ++host_partition_writes;if(host_partition_fail_write||offset>bytes.size()||size>bytes.size()-offset)return ESP_FAIL;
   const auto* input=static_cast<const uint8_t*>(source);
   for(size_t i=0;i<size;++i)if((bytes[offset+i]&input[i])!=input[i])return ESP_FAIL;
-  for(size_t i=0;i<size;++i)bytes[offset+i]&=input[i];return ESP_OK;
+  for(size_t i=0;i<size;++i)bytes[offset+i]&=input[i];
+  return ESP_OK;
 }
 esp_err_t esp_partition_erase_range(const esp_partition_t*,size_t offset,size_t size){
   ++host_partition_erases;if(host_partition_fail_write||offset%4096||size!=4096||offset>bytes.size()||size>bytes.size()-offset)return ESP_FAIL;

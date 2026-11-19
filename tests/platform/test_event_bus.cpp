@@ -21,7 +21,8 @@ struct MemoryStorage:PersistentLogStorage {
     if(fail_write||writes>=fail_after_writes||offset>bytes.size()||size>bytes.size()-offset)return false;
     const auto* in=static_cast<const uint8_t*>(data);
     for(size_t i=0;i<size;++i)if((bytes[offset+i]&in[i])!=in[i])return false;
-    for(size_t i=0;i<size;++i)bytes[offset+i]&=in[i];++writes;return true;
+    for(size_t i=0;i<size;++i)bytes[offset+i]&=in[i];
+    ++writes;return true;
   }
   bool erase(size_t offset,size_t size)override{
     if(offset%4096||size!=4096||offset>bytes.size()||size>bytes.size()-offset)return false;
@@ -219,7 +220,8 @@ void lastTransferTracking(){
     const auto battery=EventType::OnBattery;
     MemoryStorage both_in_ring;{EventBus bus;assert(bus.begin(both_in_ring));
       bus.publish(battery,2,"older",4000);assert(bus.flushPending(error));
-      for(int i=0;i<20;++i)bus.publish(EventType::ThresholdRaised,1,"fill");assert(bus.flushPending(error));
+      for(int i=0;i<20;++i)bus.publish(EventType::ThresholdRaised,1,"fill");
+      assert(bus.flushPending(error));
       bus.publish(battery,2,"newer",9000);assert(bus.flushPending(error));}
     EventBus reboot;assert(reboot.begin(both_in_ring));assert(reboot.lastTransfer(t)&&t.uptime_ms==9000&&t.message=="newer");
     MemoryStorage one_in_one_out;{EventBus bus;assert(bus.begin(one_in_one_out));

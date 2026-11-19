@@ -54,7 +54,8 @@ void EventBus::publish(EventType type,uint8_t severity,const std::string& messag
   const time_t now=time(nullptr);if(now>=1577836800&&uint64_t(now)<=4102444799ULL)event.utc=uint64_t(now);
   event.message=(message.empty()?std::string(eventMessage(type)):message).substr(0,180);
   xSemaphoreTake(mutex_,portMAX_DELAY);
-  if(++sequence_==0)++sequence_;event.seq=sequence_;
+  if(++sequence_==0)++sequence_;
+  event.seq=sequence_;
   log_[head_]=event;head_=(head_+1)%log_.size();if(count_<log_.size())++count_;
   if(type==EventType::OnBattery){has_transfer_=true;last_transfer_=event;}
   const Queued queued=pack(event,now_ms);
@@ -98,7 +99,8 @@ std::vector<Event> EventBus::history(uint32_t before_seq,size_t limit){
   xSemaphoreGive(mutex_);xSemaphoreGive(storage_mutex_);
   std::sort(out.begin(),out.end(),[](const Event& a,const Event& b){return newer(a.seq,b.seq);});
   out.erase(std::unique(out.begin(),out.end(),[](const Event& a,const Event& b){return a.seq==b.seq;}),out.end());
-  if(out.size()>limit)out.resize(limit);return out;
+  if(out.size()>limit)out.resize(limit);
+  return out;
 }
 PersistenceStatus EventBus::persistenceStatus()const{
   PersistenceStatus status;if(!mutex_||!storage_mutex_){status.error="Event system not initialized";return status;}
@@ -151,7 +153,8 @@ bool EventBus::flushPending(std::string& error){
   xSemaphoreGive(mutex_);persistence_error_.clear();error.clear();xSemaphoreGive(storage_mutex_);return true;
 }
 uint32_t EventBus::latestSequence()const{
-  if(!mutex_)return 0;xSemaphoreTake(mutex_,portMAX_DELAY);const uint32_t seq=sequence_;xSemaphoreGive(mutex_);return seq;
+  if(!mutex_)return 0;
+  xSemaphoreTake(mutex_,portMAX_DELAY);const uint32_t seq=sequence_;xSemaphoreGive(mutex_);return seq;
 }
 void EventBus::tick(){
   if(!mutex_)return;

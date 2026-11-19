@@ -424,7 +424,8 @@ void write_requests() {
     ups::Snapshot snapshot;int actions=0,calls=0;bool reject=false;ups::Command last{};ups::CommandArgs args;
     int32_t set(const std::vector<snmp::VarBind>& values,size_t& index) override {
       ++calls;gateway::PowerNetControlAction action;const int32_t result=gateway::mapPowerNetSet(values,snapshot,true,action,index);
-      if(result)return result;if(action.pending){if(reject){index=action.index;return 12;}++actions;last=action.command;args=action.args;}return 0;
+      if(result)return result;
+      if(action.pending){if(reject){index=action.index;return 12;}++actions;last=action.command;args=action.args;}return 0;
     }
   } writer;
   auto call=[&](const Bytes& q){Bytes output;CHECK(snmp::processRequest(q.data(),q.size(),"public","write",mib(),&writer,output));return decode(output);};

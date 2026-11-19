@@ -86,7 +86,8 @@ bool PersistentLog::scan(){
       if(sector.dirty||n!=sector.count){sector.dirty=true;continue;}
       Event event;
       if(!decodeEvent(block,event)||(sector.count? !newer(event.seq,sector.last):(sector.watermark!=0&&!newer(event.seq,sector.watermark)))){sector.dirty=true;continue;}
-      if(!sector.count)sector.first=event.seq;sector.last=event.seq;++sector.count;
+      if(!sector.count)sector.first=event.seq;
+      sector.last=event.seq;++sector.count;
     }
     if(sector.valid){
       if(current_!=kSectorCount&&sector.generation==generation_)return false;
@@ -137,7 +138,8 @@ bool PersistentLog::append(const std::vector<Event>& events){
     }
     auto& sector=sectors_[current_];const Block block=encodeEvent(event);
     if(!storage_.write(current_*kSectorSize+(size_t(sector.count)+1)*kSlotSize,block.data(),block.size())){sector.dirty=true;healthy_=false;return false;}
-    if(!sector.count)sector.first=event.seq;sector.last=event.seq;++sector.count;++count_;latest_sequence_=event.seq;
+    if(!sector.count)sector.first=event.seq;
+    sector.last=event.seq;++sector.count;++count_;latest_sequence_=event.seq;
   }
   return true;
 }

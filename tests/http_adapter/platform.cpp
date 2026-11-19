@@ -129,7 +129,8 @@ bool EventBus::flushPending(std::string& error){fixture::lifecycle.push_back("fl
 uint32_t EventBus::latestSequence()const{return fixture::events.empty()?0:fixture::events.front().seq;}
 bool EventBus::lastTransfer(Event& out)const{
   // Mirror the real bus: the most recently published OnBattery, not the first.
-  for(auto it=fixture::events.rbegin();it!=fixture::events.rend();++it)if(it->type==EventType::OnBattery){out=*it;return true;}return false;
+  for(auto it=fixture::events.rbegin();it!=fixture::events.rend();++it)if(it->type==EventType::OnBattery){out=*it;return true;}
+  return false;
 }
 ManagementService::ManagementService(const Config& c,UpsService& u,EventBus& e):config_(c),ups_(u),events_(e),scheduler_(c){}
 std::string ManagementService::alarmsJson()const{return alarms_.json();}
