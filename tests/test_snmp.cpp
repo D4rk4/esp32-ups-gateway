@@ -551,7 +551,7 @@ void mutation_corpus() {
   Mib provider=mib();
   for(size_t position=0;position<original.size();++position) {
     for(unsigned byte=0;byte<256;++byte) {
-      auto q=original;q[position]=uint8_t(byte);Bytes out{255};
+      auto q=original;q[position]=uint8_t(byte);Bytes out(1,255);
       if(snmp::processRequest(q.data(),q.size(),"public",provider,out)) {
         CHECK(out.size()<=1400);CHECK(decode(out).pdu==0xa2);
       } else CHECK(out.empty());
@@ -561,7 +561,7 @@ void mutation_corpus() {
   for(size_t trial=0;trial<3000;++trial) {
     random=random*1664525u+1013904223u;Bytes q(random%1402);
     for(auto& byte:q) {random=random*1664525u+1013904223u;byte=uint8_t(random>>24);}
-    Bytes out{255};
+    Bytes out(1,255);
     if(snmp::processRequest(q.data(),q.size(),"public",provider,out)) {
       CHECK(out.size()<=1400);CHECK(decode(out).pdu==0xa2);
     } else CHECK(out.empty());
